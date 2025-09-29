@@ -1,0 +1,58 @@
+<div class="section-content">
+    <div class="controls">
+        <h2>Contact Scraper</h2>
+        <p>Extract contact information from social media profiles</p>
+        
+        <div class="form-group">
+            <label for="contact-keywords">Keywords to search</label>
+            <input type="text" id="contact-keywords" placeholder="e.g., fashion designer, stylist">
+        </div>
+        
+        <div class="form-group">
+            <label for="contact-date-range">Date Range</label>
+            <select id="contact-date-range">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="365">Last year</option>
+                <option value="custom">Custom range</option>
+            </select>
+        </div>
+        
+        <div class="form-group custom-date-range hidden">
+            <label for="contact-custom-start">Start Date</label>
+            <input type="date" id="contact-custom-start">
+            
+            <label for="contact-custom-end">End Date</label>
+            <input type="date" id="contact-custom-end">
+        </div>
+        
+        <div class="form-group">
+            <label for="contact-location">Location (optional)</label>
+            <input type="text" id="contact-location" placeholder="e.g., New York, USA">
+        </div>
+        
+        <div class="form-group">
+            <button id="contact-start" class="btn">Start Contact Scraping</button>
+            <button id="contact-stop" class="btn btn-danger hidden">Stop Scraping</button>
+        </div>
+        
+        <div class="progress-bar">
+            <div class="progress-fill" id="contact-progress"></div>
+        </div>
+        <div id="contact-status">Ready to start contact scraping</div>
+        
+        <div class="results-header">
+            <h2>Contact Results</h2>
+            <div class="result-actions">
+                <button id="export-contacts" class="btn btn-success">Export Contacts</button>
+                <button id="clear-contacts" class="btn btn-danger">Clear Results</button>
+            </div>
+        </div>
+        
+        <div id="contacts-count">0 contacts found</div>
+        <div class="results-grid" id="contacts-container">
+            <!-- Contact results will be displayed here -->
+        </div>
+    </div>
+</div>

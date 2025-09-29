@@ -1,0 +1,166 @@
+<div class="section-content">
+    <div class="controls">
+        <h2>Group Contact Scraper</h2>
+        <p>Upload group member screenshots to extract phone numbers using OCR</p>
+        <div class="info-box" style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #2196f3;">
+            <strong>📱 Real OCR Processing:</strong> This tool uses Tesseract.js for actual text recognition. 
+            Optimized for Indonesian phone numbers (+62 format). Upload clear screenshots of group member lists for best results.
+        </div>
+        
+        <!-- File Upload Area -->
+        <div class="form-group">
+            <label>Upload Group Member Screenshots</label>
+            <div class="upload-area" id="upload-area">
+                <div class="upload-content">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📷</div>
+                    <h3>Drop images here or click to browse</h3>
+                    <p>Supported formats: PNG, JPG, JPEG</p>
+                    <input type="file" id="file-input" multiple accept="image/png,image/jpeg,image/jpg" style="display: none;">
+                </div>
+            </div>
+        </div>
+
+        <!-- File List -->
+        <div class="file-list" id="file-list" style="display: none;">
+            <h3>Selected Files</h3>
+            <div id="files-container"></div>
+        </div>
+
+        <!-- OCR Settings -->
+        <div class="ocr-settings">
+            <h3>OCR Settings</h3>
+                        <div class="info-box" style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #4caf50;">
+                            <strong>🎯 Simple OCR Processing:</strong> Direct full-image OCR with basic preprocessing (grayscale, contrast, threshold), PSM 6 optimization, and smart phone number extraction. Fast, reliable, and focused on finding phone numbers!
+                        </div>
+            <div class="form-group">
+                <label for="phone-pattern">Phone Number Pattern:</label>
+                <select id="phone-pattern">
+                    <option value="indonesia" selected>Indonesia format (+62)</option>
+                    <option value="all">All phone number formats</option>
+                    <option value="us">US format (XXX) XXX-XXXX</option>
+                    <option value="international">International format +XX XXX XXX XXXX</option>
+                    <option value="simple">Simple format XXXXXXXXXX</option>
+                </select>
+            </div>
+
+            
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="form-group">
+            <button id="start-group-scraping" class="btn" disabled>Start Processing</button>
+            <button id="stop-group-scraping" class="btn btn-danger hidden">Stop Processing</button>
+            <button id="clear-files" class="btn btn-secondary">Clear Files</button>
+        </div>
+
+        <!-- Progress and Status -->
+        <div class="progress-bar">
+            <div class="progress-fill" id="group-progress"></div>
+        </div>
+        <div id="group-status">Upload images to get started</div>
+
+        <!-- Results -->
+        <div class="results-header" id="results-header" style="display: none;">
+            <h2>Extracted Phone Numbers</h2>
+            <div class="result-actions">
+                <button id="export-group-csv" class="btn btn-success">Export to CSV</button>
+                <button id="clear-group-results" class="btn btn-danger">Clear Results</button>
+            </div>
+        </div>
+
+        <div id="group-results-count" style="display: none;">0 phone numbers found</div>
+        <div class="results-container" id="group-results-container" style="display: none;">
+            <table class="results-table" id="results-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Section</th>
+                        <th>Phone Number</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody id="results-tbody">
+                    <!-- Results will be displayed here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Tesseract.js will be loaded dynamically -->
+
+<style>
+.upload-area {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    margin: 20px 0;
+    background: #f9f9f9;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.upload-area:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.upload-area.dragover {
+    border-color: #007bff;
+    background: #e6f3ff;
+}
+
+.file-list {
+    margin: 20px 0;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.file-preview {
+    max-width: 200px;
+    max-height: 100px;
+    border-radius: 4px;
+    margin: 10px 0;
+}
+
+.ocr-settings {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+
+.results-table th,
+.results-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.results-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+}
+
+.phone-number {
+    font-family: monospace;
+    background: #e9ecef;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+</style>
