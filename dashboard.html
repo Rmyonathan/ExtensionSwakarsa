@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Social Media Scraper Dashboard</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2><span class="logo">👕</span> Scraper Suite</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-section="post-scraper">
+                    <span class="nav-icon">📝</span>
+                    <span class="nav-text">Post Scraper</span>
+                </a>
+                <a href="#" class="nav-item" data-section="contact-scraper">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-text">Contact Scraper</span>
+                </a>
+                <a href="#" class="nav-item" data-section="community-scraper">
+                    <span class="nav-icon">🏢</span>
+                    <span class="nav-text">Community Scraper</span>
+                </a>
+                <a href="#" class="nav-item" data-section="group-contact-scraper">
+                    <span class="nav-icon">📱</span>
+                    <span class="nav-text">Group Contact Scraper</span>
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <header>
+                <h1 id="current-section-title">Post Scraper</h1>
+                <button id="back-to-popup" class="btn btn-secondary">Back to Controls</button>
+            </header>
+
+            <!-- Section Container -->
+            <div id="section-container">
+                <div class="section-content">
+                    <div class="controls">
+                        <!-- Existing post scraper controls -->
+                        <div class="form-group">
+                            <label for="dashboard-subreddits">Subreddits (comma separated)</label>
+                            <textarea id="dashboard-subreddits" placeholder="FashionRepsBST, FashionReps, DesignerReps"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="dashboard-keywords">Keywords to filter (comma separated, optional)</label>
+                            <input type="text" id="dashboard-keywords" placeholder="FS, For Sale, WTS, Selling">
+                        </div>
+                        <div class="form-group">
+                            <label for="dashboard-max-posts">Maximum posts per subreddit: <span id="dashboard-max-value">20</span></label>
+                            <input type="range" id="dashboard-max-posts" min="5" max="50" value="20">
+                        </div>
+
+                        <!-- Instagram Settings -->
+                        <div class="form-group">
+                            <label for="instagram-hashtags">Hashtags (comma separated, without #)</label>
+                            <textarea id="instagram-hashtags" placeholder="streetwear, sneakers, fashion"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="instagram-keywords">Keywords to filter (comma separated, optional)</label>
+                            <input type="text" id="instagram-keywords" placeholder="sale, for sale, selling">
+                        </div>
+                        <div class="form-group">
+                            <label for="instagram-max-posts">Maximum posts per hashtag: <span id="instagram-max-value">20</span></label>
+                            <input type="range" id="instagram-max-posts" min="5" max="50" value="20">
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="form-group">
+                            <button id="dashboard-start" class="btn">Start Scraping</button>
+                            <button id="dashboard-stop" class="btn btn-danger hidden">Stop Scraping</button>
+                        </div>
+
+                        <!-- Progress and Status -->
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="dashboard-progress"></div>
+                        </div>
+                        <div id="dashboard-status">Ready to start scraping</div>
+
+                        <!-- Results -->
+                        <div class="results-header">
+                            <h2>Scraped Results</h2>
+                            <div class="result-actions">
+                                <button id="export-csv" class="btn btn-success">Export to CSV</button>
+                                <button id="clear-results" class="btn btn-danger">Clear Results</button>
+                            </div>
+                        </div>
+
+                        <div id="results-count">0 posts found</div>
+                        <div class="results-grid" id="results-container">
+                            <!-- Results will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

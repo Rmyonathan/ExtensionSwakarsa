@@ -1,0 +1,58 @@
+<div class="section-content">
+    <div class="controls">
+        <h2>Community Scraper</h2>
+        <p>Discover and analyze communities related to your interests</p>
+        
+        <div class="form-group">
+            <label for="community-keywords">Keywords to search</label>
+            <input type="text" id="community-keywords" placeholder="e.g., sustainable fashion, vintage clothing">
+        </div>
+        
+        <div class="form-group">
+            <label for="community-date-range">Date Range</label>
+            <select id="community-date-range">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="365">Last year</option>
+                <option value="custom">Custom range</option>
+            </select>
+        </div>
+        
+        <div class="form-group custom-date-range hidden">
+            <label for="community-custom-start">Start Date</label>
+            <input type="date" id="community-custom-start">
+            
+            <label for="community-custom-end">End Date</label>
+            <input type="date" id="community-custom-end">
+        </div>
+        
+        <div class="form-group">
+            <label for="community-location">Location (optional)</label>
+            <input type="text" id="community-location" placeholder="e.g., London, UK">
+        </div>
+        
+        <div class="form-group">
+            <button id="community-start" class="btn">Start Community Scraping</button>
+            <button id="community-stop" class="btn btn-danger hidden">Stop Scraping</button>
+        </div>
+        
+        <div class="progress-bar">
+            <div class="progress-fill" id="community-progress"></div>
+        </div>
+        <div id="community-status">Ready to start community scraping</div>
+        
+        <div class="results-header">
+            <h2>Community Results</h2>
+            <div class="result-actions">
+                <button id="export-communities" class="btn btn-success">Export Communities</button>
+                <button id="clear-communities" class="btn btn-danger">Clear Results</button>
+            </div>
+        </div>
+        
+        <div id="communities-count">0 communities found</div>
+        <div class="results-grid" id="communities-container">
+            <!-- Community results will be displayed here -->
+        </div>
+    </div>
+</div>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tesseract.js Test</title>
+</head>
+<body>
+    <h1>Tesseract.js Test</h1>
+    <div id="status">Loading...</div>
+    
+    <script src="js/tesseract.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const status = document.getElementById('status');
+            
+            if (typeof Tesseract !== 'undefined') {
+                status.innerHTML = '✅ Tesseract.js loaded successfully!';
+                status.style.color = 'green';
+                
+                // Test basic functionality
+                console.log('Tesseract version:', Tesseract.version);
+                console.log('Tesseract available methods:', Object.keys(Tesseract));
+            } else {
+                status.innerHTML = '❌ Tesseract.js failed to load';
+                status.style.color = 'red';
+            }
+        });
+    </script>
+</body>
+</html>

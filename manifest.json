@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Social Media Scraper",
+  "version": "1.0",
+  "description": "Scrape fashion posts from Reddit and Instagram, extract contacts from images, and find business communities",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://www.reddit.com/*",
+    "https://reddit.com/*",
+    "https://www.instagram.com/*",
+    "https://instagram.com/*",
+    "https://www.google.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Social Media Scraper"
+  },
+  "background": {
+    "service_worker": "js/background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "js/worker.min.js",
+        "js/tesseract-core-lstm.wasm.js",
+        "js/tesseract-core-lstm.wasm"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
