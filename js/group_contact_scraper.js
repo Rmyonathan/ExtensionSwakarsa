@@ -46,7 +46,7 @@ class GroupContactScraper {
             data[i + 1] = gray; // G
             data[i + 2] = gray; // B
         }
-
+        
         // Detect dark-mode background by sampling a border band and invert if needed
         let sampleSum = 0;
         let sampleCount = 0;
@@ -80,7 +80,7 @@ class GroupContactScraper {
         if (this.isNarrowPortrait) {
             this.applyAdaptiveThreshold(data, width, height);
         } else {
-            this.applyBasicThreshold(data);
+        this.applyBasicThreshold(data);
         }
         
         ctx.putImageData(imageData, 0, 0);
@@ -327,7 +327,7 @@ class GroupContactScraper {
                     const last = tiles[tiles.length - 1];
                     console.log(`... last tile: top=${last.sectionTop}, height=${last.sectionHeight}`);
                 }
-
+                
                 const contacts = await this.extractContactsFromImage(img, 'test-image.png', 'indonesia');
                 
                 console.log('=== SPLITTING RESULTS ===');
@@ -760,13 +760,13 @@ class GroupContactScraper {
                 }
                 console.log(`Tile ${i + 1}/${tiles.length} found ${tileNumbers.length} numbers`);
                 tileNumbers.forEach(phone => {
-                    contacts.push({
-                        file: fileName,
+                contacts.push({
+                    file: fileName,
                         section: i + 1,
                         phoneNumber: phone.phoneNumber,
-                        confidence: phone.confidence
-                    });
+                    confidence: phone.confidence
                 });
+            });
             }
             
             console.log(`Total contacts found: ${contacts.length}`);
