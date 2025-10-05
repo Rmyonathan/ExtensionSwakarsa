@@ -8,14 +8,17 @@
     "scripting",
     "tabs",
     "storage",
-    "webNavigation"
+    "webNavigation",
+    "offscreen"
   ],
   "host_permissions": [
     "https://www.reddit.com/*",
     "https://reddit.com/*",
     "https://www.instagram.com/*",
     "https://instagram.com/*",
-    "https://www.google.com/*"
+    "https://www.google.com/*",
+    "https://web.whatsapp.com/*",
+    "https://script.google.com/macros/s/AKfycbyO7msqkzDY_MHLLYoWVHx5pBz0LfTdOfDnqxKmo8AeH05z7MRf2qI14zpXmmXjPvcBdA/exec/*"
   ],
   "action": {
     "default_popup": "popup.html",

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Auto Chat</title>
+    <link rel="stylesheet" href="../css/dashboard.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="main-content">
+            <div class="controls">
+                <div class="form-group">
+                    <label for="wa-numbers">Phone Numbers (comma-separated or one per line, include country code like +1)</label>
+                    <textarea id="wa-numbers" placeholder="+1234567890, +0987654321\n+1122334455" rows="10"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="wa-message">Message to Send</label>
+                    <textarea id="wa-message" placeholder="Enter your message here" rows="5"></textarea>
+                </div>
+                <div class="form-group">
+                    <button id="wa-start" class="btn">Start Auto Chat</button>
+                </div>
+                <div id="wa-status">Ready to start. Note: Ensure WhatsApp Web is logged in. Automation may be detected by WhatsApp and lead to temporary bans if overused.</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

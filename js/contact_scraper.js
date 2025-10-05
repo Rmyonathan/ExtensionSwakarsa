@@ -62,11 +62,8 @@ export async function startContactScraping(config) {
 
 export async function scrapeBingForEmails(source, keywords, dateRange, location) {
     console.log(`Scraping Bing for ${source} with keywords: ${keywords}`);
-    const results = [];
-    const maxPages = 5;
-    let previousPageContent = '';
-
-    const baseQuery = `site:${source}.com ${keywords} "@gmail.com"`; // Added @gmail.com
+    
+    const baseQuery = `site:${source}.com ${keywords} "@gmail.com"`;
     let fullQuery = baseQuery;
     
     if (dateRange && dateRange !== 'custom') {
@@ -80,41 +77,19 @@ export async function scrapeBingForEmails(source, keywords, dateRange, location)
         fullQuery += ` location:${location}`;
     }
     
-    console.log('Bing query:', fullQuery);
+    console.log('Google query:', fullQuery);
 
-    for (let page = 1; page <= maxPages; page++) {
-        if (!isContactScraping) {
-            console.log('Scraping stopped by user');
-            break;
-        }
-
-        try {
-            console.log(`Scraping page ${page} of ${maxPages}`);
-            const { emails, pageContent } = await scrapeBingPage(fullQuery, page, source, keywords);
-
-            // Check if page content is the same as the previous page (indicating no more results)
-            if (pageContent === previousPageContent) {
-                console.log(`No new results on page ${page}, stopping`);
-                break;
-            }
-            previousPageContent = pageContent;
-
-            results.push(...emails);
-
-            const progress = Math.round((page / maxPages) * 100);
-            chrome.runtime.sendMessage({
-                action: 'contactScrapingProgress',
-                data: progress
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (error) {
-            console.error(`Error scraping page ${page}:`, error);
-            break;
-        }
+    try {
+        console.log(`Starting recursive pagination for ${source}`);
+        const { emails, pageContent } = await scrapeBingPage(fullQuery, 1, source, keywords);
+        
+        console.log(`Total unique emails found for ${source}: ${emails.length}`);
+        return emails;
+        
+    } catch (error) {
+        console.error(`Error scraping ${source}:`, error);
+        return [];
     }
-
-    return results;
 }
 
 function getDateRange(range) {
@@ -145,89 +120,131 @@ function getDateRange(range) {
 }
 
 export async function scrapeBingPage(query, page, source, keyword) {
-    console.log(`Opening Bing page ${page} for query: ${query}`);
+    console.log(`Opening Google page ${page} for query: ${query}`);
     return new Promise((resolve, reject) => {
-        const first = (page - 1) * 10 + 1;
-        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&first=${first}`;
+        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
-        chrome.tabs.create({
-            url: url,
-            active: false,
-            pinned: true // Pinned tabs are less likely to be closed
-        }, (tab) => {
+        chrome.tabs.create({ url, active: false, pinned: true }, (tab) => {
             if (chrome.runtime.lastError) {
-                console.error('Error creating tab:', JSON.stringify(chrome.runtime.lastError, null, 2));
-                reject(new Error(chrome.runtime.lastError.message));
-                return;
+                return reject(new Error(chrome.runtime.lastError.message));
             }
 
             const tabId = tab.id;
             contactOpenTabs.push(tabId);
-            console.log(`Created tab with URL: ${tab.pendingUrl || tab.url}`);
 
             let hasProcessed = false;
+            let collectedEmails = [];
+
+            const scrapeLoop = (attempt = 1) => {
+                if (!isContactScraping || attempt > 5) {
+                    cleanupContactTab(tabId);
+                    resolve({ emails: collectedEmails, pageContent: '' });
+                    return;
+                }
+
+                chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: async () => {
+                        // Scroll down gradually
+                        for (let i = 0; i < 5; i++) {
+                            window.scrollBy(0, document.body.scrollHeight);
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        // Extract emails and get page text
+                        const emailRegex = /[a-zA-Z0-9._%+-]+@gmail\.com/g;
+                        const pageText = document.body.innerText;
+                        const matches = [...new Set(pageText.match(emailRegex) || [])]; // ← FIXED: changed 'text' to 'pageText'
+
+                        // Try to find and click the "Next" button
+                        const nextBtn = [...document.querySelectorAll('a')]
+                            .find(a => a.innerText.toLowerCase().includes('next'));
+
+                        if (nextBtn) {
+                            nextBtn.click();
+                            return { 
+                                emails: matches, 
+                                hasNext: true,
+                                pageText: pageText // Return page text for context
+                            };
+                        } else {
+                            return { 
+                                emails: matches, 
+                                hasNext: false,
+                                pageText: pageText // Return page text for context
+                            };
+                        }
+                    }
+                }, (results) => {
+                    if (chrome.runtime.lastError) {
+                        cleanupContactTab(tabId);
+                        reject(new Error(chrome.runtime.lastError.message));
+                        return;
+                    }
+
+                    const result = results?.[0]?.result;
+                    if (!result) {
+                        cleanupContactTab(tabId);
+                        reject(new Error('No result returned'));
+                        return;
+                    }
+
+                    // === REPLACE THIS PART ===
+                    // Process emails with context and duplicate filtering
+                    const newEmails = result.emails.map(email => {
+                        // Find context around the email
+                        const emailIndex = result.pageText.indexOf(email);
+                        let context = `Found on ${source} search`;
+                        
+                        if (emailIndex !== -1) {
+                            const start = Math.max(0, emailIndex - 100);
+                            const end = Math.min(result.pageText.length, emailIndex + email.length + 100);
+                            context = result.pageText.substring(start, end).replace(/\s+/g, ' ').trim();
+                        }
+                        
+                        return {
+                            email: email.toLowerCase(), // normalize case
+                            overview: context,
+                            source: source.charAt(0).toUpperCase() + source.slice(1),
+                            keyword: keyword
+                        };
+                    });
+
+                    // Better duplicate filtering - check exact email match
+                    const uniqueNewEmails = newEmails.filter(newEmail => 
+                        !collectedEmails.some(existing => 
+                            existing.email.toLowerCase() === newEmail.email.toLowerCase()
+                        )
+                    );
+
+                    collectedEmails.push(...uniqueNewEmails);
+                    // === END REPLACEMENT ===
+
+                    console.log(`Collected ${collectedEmails.length} so far (attempt ${attempt})`);
+
+                    if (result.hasNext && attempt < 10) {
+                        // Wait for next page to load, then scrape again
+                        setTimeout(() => scrapeLoop(attempt + 1), 4000 + Math.random() * 2000);
+                    } else {
+                        cleanupContactTab(tabId);
+                        resolve({ emails: collectedEmails, pageContent: '' });
+                    }
+                });
+            };
+
+            // Wait for first page load
             const onTabUpdated = (updatedTabId, changeInfo) => {
                 if (updatedTabId === tabId && changeInfo.status === 'complete' && !hasProcessed) {
                     hasProcessed = true;
-                    console.log(`Tab ${tabId} loaded completely`);
-                    setTimeout(() => {
-                        chrome.tabs.get(tabId, (tabInfo) => {
-                            if (chrome.runtime.lastError || !tabInfo) {
-                                console.error('Tab no longer exists:', JSON.stringify(chrome.runtime.lastError || { message: 'Tab not found' }));
-                                chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                                cleanupContactTab(tabId);
-                                reject(new Error('Tab no longer exists'));
-                                return;
-                            }
-
-                            chrome.scripting.executeScript({
-                                target: { tabId: tabId },
-                                func: extractEmailsFromPage,
-                                args: [source, keyword]
-                            }, (results) => {
-                                chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                                cleanupContactTab(tabId);
-
-                                if (chrome.runtime.lastError) {
-                                    console.error('Error extracting emails:', JSON.stringify(chrome.runtime.lastError, null, 2));
-                                    reject(new Error(chrome.runtime.lastError.message || 'Unknown script execution error'));
-                                    return;
-                                }
-
-                                const pageText = results && results[0] && results[0].result ? results[0].result.pageText : '';
-                                const emails = results && results[0] && results[0].result ? results[0].result.emails : [];
-                                console.log(`Found ${emails.length} emails on page ${page}`);
-                                resolve({ emails, pageContent: pageText });
-                            });
-                        });
-                    }, 5000);
+                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
+                    setTimeout(() => scrapeLoop(), 3000);
                 }
             };
-
             chrome.tabs.onUpdated.addListener(onTabUpdated);
-
-            const onTabRemoved = (closedTabId) => {
-                if (closedTabId === tabId && !hasProcessed) {
-                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                    chrome.tabs.onRemoved.removeListener(onTabRemoved);
-                    cleanupContactTab(tabId);
-                    reject(new Error('Tab was closed unexpectedly'));
-                }
-            };
-
-            chrome.tabs.onRemoved.addListener(onTabRemoved);
-
-            setTimeout(() => {
-                if (!hasProcessed) {
-                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                    chrome.tabs.onRemoved.removeListener(onTabRemoved);
-                    cleanupContactTab(tabId);
-                    reject(new Error('Timeout loading Bing page'));
-                }
-            }, 30000);
         });
     });
 }
+
 
 export function extractEmailsFromPage(source, keyword) {
     console.log('Extracting emails from page');

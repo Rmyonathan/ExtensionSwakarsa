@@ -41,6 +41,30 @@ export async function startCommunityScraping(config) {
             allResults = allResults.concat(instagramResults);
         }
 
+        // Scrape Facebook
+        if (config.facebookConfig && config.facebookConfig.keywords && isCommunityScraping) {
+            console.log('Starting Facebook community scraping');
+            const facebookResults = await scrapeBingForLinks(
+                'facebook',
+                config.facebookConfig.keywords,
+                config.facebookConfig.dateRange,
+                config.facebookConfig.location
+            );
+            allResults = allResults.concat(facebookResults);
+        }
+
+        // Scrape TikTok
+        if (config.tiktokConfig && config.tiktokConfig.keywords && isCommunityScraping) {
+            console.log('Starting TikTok community scraping');
+            const tiktokResults = await scrapeBingForLinks(
+                'tiktok',
+                config.tiktokConfig.keywords,
+                config.tiktokConfig.dateRange,
+                config.tiktokConfig.location
+            );
+            allResults = allResults.concat(tiktokResults);
+        }
+
         if (isCommunityScraping) {
             console.log('Community scraping completed with results:', allResults.length);
             chrome.runtime.sendMessage({
@@ -62,10 +86,7 @@ export async function startCommunityScraping(config) {
 
 export async function scrapeBingForLinks(source, keywords, dateRange, location) {
     console.log(`Scraping Bing for ${source} with keywords: ${keywords}`);
-    const results = [];
-    const maxPages = 5;
-    let previousPageContent = '';
-
+    
     const baseQuery = `site:${source}.com ${keywords} "chat.whatsapp.com"`;
     let fullQuery = baseQuery;
 
@@ -80,40 +101,19 @@ export async function scrapeBingForLinks(source, keywords, dateRange, location) 
         fullQuery += ` location:${location}`;
     }
 
-    console.log('Bing query:', fullQuery);
+    console.log('Google query:', fullQuery);
 
-    for (let page = 1; page <= maxPages; page++) {
-        if (!isCommunityScraping) {
-            console.log('Scraping stopped by user');
-            break;
-        }
-
-        try {
-            console.log(`Scraping page ${page} of ${maxPages}`);
-            const { links, pageContent } = await scrapeBingPage(fullQuery, page, source, keywords);
-
-            if (pageContent === previousPageContent) {
-                console.log(`No new results on page ${page}, stopping`);
-                break;
-            }
-            previousPageContent = pageContent;
-
-            results.push(...links);
-
-            const progress = Math.round((page / maxPages) * 100);
-            chrome.runtime.sendMessage({
-                action: 'communityScrapingProgress',
-                data: progress
-            });
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (error) {
-            console.error(`Error scraping page ${page}:`, error);
-            break;
-        }
+    try {
+        console.log(`Starting recursive pagination for ${source}`);
+        const { links, pageContent } = await scrapeBingPageForLinks(fullQuery, 1, source, keywords);
+        
+        console.log(`Total unique WhatsApp links found for ${source}: ${links.length}`);
+        return links;
+        
+    } catch (error) {
+        console.error(`Error scraping ${source}:`, error);
+        return [];
     }
-
-    return results;
 }
 
 function getDateRange(range) {
@@ -143,128 +143,126 @@ function getDateRange(range) {
     };
 }
 
-export async function scrapeBingPage(query, page, source, keyword) {
-    console.log(`Opening Bing page ${page} for query: ${query}`);
+export async function scrapeBingPageForLinks(query, page, source, keyword) {
+    console.log(`Opening Google page ${page} for query: ${query}`);
     return new Promise((resolve, reject) => {
-        const first = (page - 1) * 10 + 1;
-        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&first=${first}`;
+        const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
-        chrome.tabs.create({
-            url: url,
-            active: false,
-            pinned: true
-        }, (tab) => {
+        chrome.tabs.create({ url, active: false, pinned: true }, (tab) => {
             if (chrome.runtime.lastError) {
-                console.error('Error creating tab:', JSON.stringify(chrome.runtime.lastError, null, 2));
-                reject(new Error(chrome.runtime.lastError.message));
-                return;
+                return reject(new Error(chrome.runtime.lastError.message));
             }
 
             const tabId = tab.id;
             communityOpenTabs.push(tabId);
-            console.log(`Created tab with URL: ${tab.pendingUrl || tab.url}`);
 
             let hasProcessed = false;
+            let collectedLinks = [];
+
+            const scrapeLoop = (attempt = 1) => {
+                if (!isCommunityScraping || attempt > 5) {
+                    cleanupCommunityTab(tabId);
+                    resolve({ links: collectedLinks, pageContent: '' });
+                    return;
+                }
+
+                chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: async () => {
+                        // Scroll down gradually
+                        for (let i = 0; i < 5; i++) {
+                            window.scrollBy(0, document.body.scrollHeight);
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        // Extract WhatsApp links and get page text
+                        const linkRegex = /https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/g;
+                        const pageText = document.body.innerText;
+                        const matches = [...new Set(pageText.match(linkRegex) || [])];
+
+                        // Try to find and click the "Next" button
+                        const nextBtn = [...document.querySelectorAll('a')]
+                            .find(a => a.innerText.toLowerCase().includes('next'));
+
+                        if (nextBtn) {
+                            nextBtn.click();
+                            return { 
+                                links: matches, 
+                                hasNext: true,
+                                pageText: pageText
+                            };
+                        } else {
+                            return { 
+                                links: matches, 
+                                hasNext: false,
+                                pageText: pageText
+                            };
+                        }
+                    }
+                }, (results) => {
+                    if (chrome.runtime.lastError) {
+                        cleanupCommunityTab(tabId);
+                        reject(new Error(chrome.runtime.lastError.message));
+                        return;
+                    }
+
+                    const result = results?.[0]?.result;
+                    if (!result) {
+                        cleanupCommunityTab(tabId);
+                        reject(new Error('No result returned'));
+                        return;
+                    }
+
+                    // Process new links with context and duplicate filtering
+                    const newLinks = result.links.map(link => {
+                        // Find context around the link
+                        const linkIndex = result.pageText.indexOf(link);
+                        let context = `Found on ${source} search`;
+                        
+                        if (linkIndex !== -1) {
+                            const start = Math.max(0, linkIndex - 100);
+                            const end = Math.min(result.pageText.length, linkIndex + link.length + 100);
+                            context = result.pageText.substring(start, end).replace(/\s+/g, ' ').trim();
+                        }
+                        
+                        return {
+                            link: link,
+                            overview: context,
+                            source: source.charAt(0).toUpperCase() + source.slice(1),
+                            keyword: keyword
+                        };
+                    });
+
+                    // Better duplicate filtering - check exact link match
+                    const uniqueNewLinks = newLinks.filter(newLink => 
+                        !collectedLinks.some(existing => existing.link === newLink.link)
+                    );
+
+                    collectedLinks.push(...uniqueNewLinks);
+
+                    console.log(`Collected ${collectedLinks.length} so far (attempt ${attempt})`);
+
+                    if (result.hasNext && attempt < 10) {
+                        // Wait for next page to load, then scrape again
+                        setTimeout(() => scrapeLoop(attempt + 1), 4000 + Math.random() * 2000);
+                    } else {
+                        cleanupCommunityTab(tabId);
+                        resolve({ links: collectedLinks, pageContent: '' });
+                    }
+                });
+            };
+
+            // Wait for first page load
             const onTabUpdated = (updatedTabId, changeInfo) => {
                 if (updatedTabId === tabId && changeInfo.status === 'complete' && !hasProcessed) {
                     hasProcessed = true;
-                    console.log(`Tab ${tabId} loaded completely`);
-                    setTimeout(() => {
-                        chrome.tabs.get(tabId, (tabInfo) => {
-                            if (chrome.runtime.lastError || !tabInfo) {
-                                console.error('Tab no longer exists:', JSON.stringify(chrome.runtime.lastError || { message: 'Tab not found' }));
-                                chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                                cleanupCommunityTab(tabId);
-                                reject(new Error('Tab no longer exists'));
-                                return;
-                            }
-
-                            chrome.scripting.executeScript({
-                                target: { tabId: tabId },
-                                func: extractLinksFromPage,
-                                args: [source, keyword]
-                            }, (results) => {
-                                chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                                cleanupCommunityTab(tabId);
-
-                                if (chrome.runtime.lastError) {
-                                    console.error('Error extracting links:', JSON.stringify(chrome.runtime.lastError, null, 2));
-                                    reject(new Error(chrome.runtime.lastError.message || 'Unknown script execution error'));
-                                    return;
-                                }
-
-                                const pageText = results && results[0] && results[0].result ? results[0].result.pageText : '';
-                                const links = results && results[0] && results[0].result ? results[0].result.links : [];
-                                console.log(`Found ${links.length} links on page ${page}`);
-                                resolve({ links, pageContent: pageText });
-                            });
-                        });
-                    }, 5000);
+                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
+                    setTimeout(() => scrapeLoop(), 3000);
                 }
             };
-
             chrome.tabs.onUpdated.addListener(onTabUpdated);
-
-            const onTabRemoved = (closedTabId) => {
-                if (closedTabId === tabId && !hasProcessed) {
-                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                    chrome.tabs.onRemoved.removeListener(onTabRemoved);
-                    cleanupCommunityTab(tabId);
-                    reject(new Error('Tab was closed unexpectedly'));
-                }
-            };
-
-            chrome.tabs.onRemoved.addListener(onTabRemoved);
-
-            setTimeout(() => {
-                if (!hasProcessed) {
-                    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-                    chrome.tabs.onRemoved.removeListener(onTabRemoved);
-                    cleanupCommunityTab(tabId);
-                    reject(new Error('Timeout loading Bing page'));
-                }
-            }, 30000);
         });
     });
-}
-
-export function extractLinksFromPage(source, keyword) {
-    console.log('Extracting WhatsApp links from page');
-    const results = [];
-    const linkRegex = /https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/g;
-    const pageText = document.body.textContent;
-
-    console.log('Page content length:', pageText.length);
-    console.log('Sample page content (first 500 chars):', pageText.substring(0, 500));
-
-    if (pageText.includes('CAPTCHA') || pageText.includes('Please verify you are not a robot')) {
-        console.warn('CAPTCHA detected on Bing page. Please verify manually and restart scraping.');
-        chrome.runtime.sendMessage({
-            action: 'communityScrapingError',
-            data: 'CAPTCHA detected. Please verify manually.'
-        });
-        return { links: [], pageText };
-    }
-
-    let match;
-    while ((match = linkRegex.exec(pageText)) !== null) {
-        const link = match[0];
-        const start = Math.max(0, match.index - 50);
-        const end = Math.min(pageText.length, match.index + link.length + 50);
-        const snippet = pageText.substring(start, end).replace(/\s+/g, ' ').trim();
-
-        if (!results.some(r => r.link === link)) {
-            results.push({
-                link: link,
-                overview: snippet,
-                source: source.charAt(0).toUpperCase() + source.slice(1),
-                keyword: keyword
-            });
-        }
-    }
-
-    console.log(`Found ${results.length} WhatsApp links on this page`);
-    return { links: results, pageText };
 }
 
 export function stopCommunityScraping() {

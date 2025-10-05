@@ -1,33 +1,154 @@
 let currentSection = null;
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Load the initial section
-    loadSection('post-scraper');
-    
-    // Set up navigation
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-        item.addEventListener('click', function(e) {
-            e.preventDefault();
-            const section = this.getAttribute('data-section');
-            
-            // Update active state
-            navItems.forEach(nav => nav.classList.remove('active'));
-            this.classList.add('active');
-            
-            // Load the section
-            loadSection(section);
-        });
+document.addEventListener('DOMContentLoaded', async function () {
+  const isAuthenticated = await checkAuth();
+
+  if (!isAuthenticated) {
+    showLoginScreen();
+    return; // Stop here — do not set up nav or load sections
+  }
+
+  // User is authenticated — proceed with normal dashboard setup
+  loadSection('post-scraper');
+
+  // Set up navigation (only for authenticated users)
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', function (e) {
+      e.preventDefault();
+      const section = this.getAttribute('data-section');
+
+      // Re-check auth on every nav click (optional but safer)
+      if (!localStorage.getItem('scraper_auth')) {
+        showLoginScreen();
+        return;
+      }
+
+      // Update active state
+      navItems.forEach(nav => nav.classList.remove('active'));
+      this.classList.add('active');
+
+      // Load the section
+      loadSection(section);
     });
-    
-    // Back to popup button
-    const backToPopup = document.getElementById('back-to-popup');
-    if (backToPopup) {
-        backToPopup.addEventListener('click', function() {
-            window.close();
-        });
-    }
+  });
+
+  // Back to popup button
+  const backToPopup = document.getElementById('back-to-popup');
+  if (backToPopup) {
+    backToPopup.addEventListener('click', function () {
+      window.close();
+    });
+  }
 });
+
+const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyO7msqkzDY_MHLLYoWVHx5pBz0LfTdOfDnqxKmo8AeH05z7MRf2qI14zpXmmXjPvcBdA/exec';
+
+async function checkAuth() {
+  const saved = localStorage.getItem('scraper_auth');
+  if (saved) {
+    try {
+      const auth = JSON.parse(saved);
+      const now = new Date();
+      // Optional: add local expiry (e.g., 7 days)
+      if (auth && auth.email && auth.otp && new Date(auth.timestamp) > new Date(now - 7 * 24 * 60 * 60 * 1000)) {
+        return true;
+      }
+    } catch (e) {}
+  }
+  return false;
+}
+
+async function showLoginScreen() {
+  const container = document.getElementById('section-container');
+  container.innerHTML = `
+    <div class="login-screen" style="padding: 2rem; max-width: 500px; margin: 2rem auto;">
+      <h2>🔐 Login Required</h2>
+      <p>Enter your registered email to receive an OTP.</p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" class="form-control" placeholder="you@example.com">
+      </div>
+      <button id="request-otp-btn" class="btn">Send OTP</button>
+      <div id="otp-section" style="display:none; margin-top:1rem;">
+        <div class="form-group">
+          <label>Enter OTP (sent to your email)</label>
+          <input type="text" id="login-otp" class="form-control" maxlength="6">
+        </div>
+        <button id="verify-otp-btn" class="btn">Verify</button>
+      </div>
+      <div id="login-status" style="margin-top:1rem; min-height:1.5rem;"></div>
+    </div>
+  `;
+
+  document.getElementById('request-otp-btn').addEventListener('click', async () => {
+    const email = document.getElementById('login-email').value.trim().toLowerCase();
+    if (!email) return showError('Please enter your email.');
+    showStatus('Sending OTP...');
+
+    try {
+      const res = await fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'request-otp',
+            email: email
+        })
+    });
+      const data = await res.json();
+      if (data.success) {
+        showStatus('OTP sent! Check your email.', 'success');
+        document.getElementById('otp-section').style.display = 'block';
+      } else if (data.blocked) {
+        showError(data.error);
+      } else {
+        showError(data.error || 'Failed to send OTP.');
+      }
+    } catch (err) {
+      showError('Network error. Try again.');
+    }
+  });
+
+  document.getElementById('verify-otp-btn').addEventListener('click', async () => {
+    const email = document.getElementById('login-email').value.trim().toLowerCase();
+    const otp = document.getElementById('login-otp').value.trim();
+    if (!otp) return showError('Please enter OTP.');
+    showStatus('Verifying...');
+
+    try {
+      const res = await fetch(WEB_APP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'verify-otp',
+            email: email,
+            otp: otp
+        })
+    });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('scraper_auth', JSON.stringify({
+          email: email,
+          otp: otp,
+          timestamp: new Date().toISOString()
+        }));
+        showStatus('Login successful! Loading dashboard...', 'success');
+        setTimeout(() => loadSection('post-scraper'), 1000);
+      } else {
+        showError(data.error || 'Invalid OTP.');
+      }
+    } catch (err) {
+      showError('Verification failed.');
+    }
+  });
+
+  function showStatus(msg, type = 'error') {
+    const el = document.getElementById('login-status');
+    el.textContent = msg;
+    el.style.color = type === 'success' ? 'green' : 'red';
+  }
+  function showError(msg) { showStatus(msg, 'error'); }
+}
 
 async function loadSection(sectionName) {
     currentSection = sectionName;
@@ -47,6 +168,9 @@ async function loadSection(sectionName) {
             break;
         case 'group-contact-scraper':
             titleElement.textContent = 'Group Contact Scraper';
+            break;
+        case 'wa-auto':
+            titleElement.textContent = 'WhatsApp Auto Chat';
             break;
     }
     
@@ -78,6 +202,141 @@ function initSection(sectionName) {
         case 'group-contact-scraper':
             initGroupContactScraper();
             break;
+        case 'wa-auto':
+            initWhatsAppAuto();
+            break;
+    }
+}
+
+function initWhatsAppAuto() {
+    console.log('Initializing WhatsApp Auto Chat');
+    
+    // Load the wa-auto.js script if not already loaded
+    if (typeof window.automateWhatsAppSending === 'undefined') {
+        const script = document.createElement('script');
+        script.src = './js/wa-auto.js';
+        script.onload = () => {
+            setupWhatsAppAuto();
+        };
+        script.onerror = () => {
+            console.error('Failed to load wa-auto.js');
+            const status = document.getElementById('wa-status');
+            if (status) {
+                status.textContent = 'Error: Failed to load automation script.';
+            }
+        };
+        document.head.appendChild(script);
+    } else {
+        setupWhatsAppAuto();
+    }
+}
+
+function parsePhoneNumbers(rawText) {
+    if (!rawText) return [];
+
+    // Split on any kind of separator, including more messy ones like :, ;, |, /, -, →, >, *, (, ), ?, !, etc.
+    const possibleParts = rawText
+        .split(/[\s,;:|/\-→>*()?!~…\n]+/)  // Expanded split regex to handle more punctuation and symbols from your examples
+        .map(part => part.trim())
+        .filter(Boolean);
+
+    const results = new Set();  // Use Set to automatically handle duplicates
+
+    for (let part of possibleParts) {
+        // Remove all non-digit or plus characters (handles dashes, spaces, etc. in the number itself)
+        let cleaned = part.replace(/[^\d+]/g, '');
+
+        // Skip if empty or too short
+        if (!cleaned || cleaned.length < 8) continue;  // Minimum plausible phone length
+
+        // Handle local Indonesian numbers (08xxxx → +62xxxx)
+        if (cleaned.startsWith('08')) {
+            cleaned = '+62' + cleaned.slice(1);
+        }
+
+        // Handle plain “62...” without +
+        else if (cleaned.startsWith('62')) {
+            cleaned = '+' + cleaned;
+        }
+
+        // Handle numbers starting with single 0 (e.g., 081234 → +6281234)
+        else if (cleaned.startsWith('0') && !cleaned.startsWith('08')) {  // Avoid double-handling 08
+            cleaned = '+62' + cleaned.slice(1);
+        }
+
+        // Handle numbers like 857... (missing leading 0/+) by assuming +62 if it looks Indonesian (8-10 digits starting with 8)
+        else if (cleaned.startsWith('8') && cleaned.length >= 8 && cleaned.length <= 12) {
+            cleaned = '+628' + cleaned.slice(1);
+        }
+
+        // Remove duplicate plus signs or leading zeros artifacts
+        cleaned = cleaned.replace(/^\++/, '+').replace(/^0+/, '0');  // But keep one 0 if it's local
+
+        // If it doesn't start with +, assume Indonesian and prepend +62 (fallback for messy data)
+        if (!cleaned.startsWith('+') && cleaned.startsWith('0')) {
+            cleaned = '+62' + cleaned.slice(1);
+        } else if (!cleaned.startsWith('+')) {
+            cleaned = '+62' + cleaned;
+        }
+
+        // Validation: starts with +, has 10–15 digits total (adjusted for Indonesian numbers, which are often 11-13 digits incl. +62)
+        if (/^\+\d{10,15}$/.test(cleaned)) {
+            results.add(cleaned);
+        }
+    }
+
+    return Array.from(results);
+}
+
+// Now, update your setupWhatsAppAuto function to use parsePhoneNumbers instead of simple split
+function setupWhatsAppAuto() {
+    const startBtn = document.getElementById('wa-start');
+    const status = document.getElementById('wa-status');
+
+    if (startBtn && status) {
+        startBtn.addEventListener('click', async () => {
+            const numbersText = document.getElementById('wa-numbers').value.trim();
+            const message = document.getElementById('wa-message').value.trim();
+
+            if (!numbersText || !message) {
+                status.textContent = 'Error: Please provide phone numbers and a message.';
+                return;
+            }
+
+            // Parse the messy input here
+            const numbers = parsePhoneNumbers(numbersText);
+
+            if (numbers.length === 0) {
+                status.textContent = 'Error: No valid phone numbers found in the input.';
+                return;
+            }
+
+            status.textContent = `Starting auto chat for ${numbers.length} numbers... Opening WhatsApp Web.`;
+
+            try {
+                // Send the parsed numbers to background
+                chrome.runtime.sendMessage({
+                    action: 'startWhatsAppAutomation',
+                    numbers: numbers,  // Now sending cleaned, formatted array
+                    message: message
+                }, response => {
+                    if (chrome.runtime.lastError) {
+                        status.textContent = `Error: ${chrome.runtime.lastError.message}`;
+                        console.error('Runtime error:', chrome.runtime.lastError);
+                    } else if (response && response.status === 'error') {
+                        status.textContent = `Error: ${response.message}`;
+                        console.error('Background script error:', response.message);
+                    } else {
+                        status.textContent = 'Automation started. Monitor the WhatsApp tab console for logs.';
+                    }
+                });
+            } catch (err) {
+                status.textContent = `Error: ${err.message}. Ensure extension has 'tabs' and 'scripting' permissions.`;
+                console.error('Error initiating automation:', err);
+            }
+        });
+    } else {
+        console.error('Start button or status element not found.');
     }
 }
 
@@ -306,8 +565,6 @@ function contactScrapingError(error) {
     updateContactUIForScraping(false);
     updateContactStatus(`Error: ${error}`, 'error');
 }
-
-// ... rest of the functions remain the same
 
 function displayContactResults(data) {
     const container = document.getElementById('contacts-container');
@@ -542,6 +799,16 @@ function startCommunityScraping() {
             keywords: keywords,
             dateRange: dateRange,
             location: location
+        },
+        facebookConfig: {
+            keywords: keywords,
+            dateRange: dateRange,
+            location: location
+        },
+        tiktokConfig: {
+            keywords: keywords,
+            dateRange: dateRange,
+            location: location
         }
     };
     
@@ -556,6 +823,8 @@ function startCommunityScraping() {
         
         config.linkedinConfig.dateRange = { start: startDate, end: endDate };
         config.instagramConfig.dateRange = { start: startDate, end: endDate };
+        config.facebookConfig.dateRange = { start: startDate, end: endDate };
+        config.tiktokConfig.dateRange = { start: startDate, end: endDate };
     }
     
     updateCommunityUIForScraping(true);
@@ -746,7 +1015,6 @@ function updateCommunityStatus(message, status) {
     }
 }
 
-// Your existing functions (startScraping, stopScraping, etc.) remain mostly the same
 function loadSavedData() {
     chrome.storage.local.get(['scrapedData', 'scrapingConfig'], function(result) {
         if (result.scrapedData) {
@@ -992,14 +1260,3 @@ function updateStatus(message, status) {
         }
     }
 }
-
-// Placeholder functions for new scrapers
-// function startContactScraping() {
-//     console.log('Contact scraping started');
-//     // TODO: Implement contact scraping
-// }
-
-// function startCommunityScraper() {
-//     console.log('Community scraping started');
-//     // TODO: Implement community scraping
-// }
