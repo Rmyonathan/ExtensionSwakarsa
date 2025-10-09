@@ -288,18 +288,43 @@ function parsePhoneNumbers(rawText) {
     return Array.from(results);
 }
 
-// Now, update your setupWhatsAppAuto function to use parsePhoneNumbers instead of simple split
 function setupWhatsAppAuto() {
     const startBtn = document.getElementById('wa-start');
     const status = document.getElementById('wa-status');
+    const addMessageBtn = document.getElementById('add-message-block');
 
     if (startBtn && status) {
         startBtn.addEventListener('click', async () => {
             const numbersText = document.getElementById('wa-numbers').value.trim();
-            const message = document.getElementById('wa-message').value.trim();
+            const messageBlocks = document.querySelectorAll('.message-block');
+            const messages = [];
 
-            if (!numbersText || !message) {
-                status.textContent = 'Error: Please provide phone numbers and a message.';
+            // Collect all messages and attachments
+            for (let i = 0; i < messageBlocks.length; i++) {
+                const message = document.getElementById(`wa-message-${i}`).value.trim();
+                const fileInput = document.getElementById(`wa-attachment-${i}`);
+                let attachment = null;
+
+                if (fileInput && fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    if (file.type.startsWith('image/')) {
+                        // Convert file to base64 for transmission
+                        attachment = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(file);
+                        });
+                    }
+                }
+
+                if (message || attachment) {
+                    messages.push({ text: message, attachment });
+                }
+            }
+
+            if (!numbersText || messages.length === 0) {
+                status.textContent = 'Error: Please provide phone numbers and at least one message or attachment.';
                 return;
             }
 
@@ -311,14 +336,14 @@ function setupWhatsAppAuto() {
                 return;
             }
 
-            status.textContent = `Starting auto chat for ${numbers.length} numbers... Opening WhatsApp Web.`;
+            status.textContent = `Starting auto chat for ${numbers.length} numbers with ${messages.length} messages... Opening WhatsApp Web.`;
 
             try {
-                // Send the parsed numbers to background
+                // Send the parsed numbers and messages to background
                 chrome.runtime.sendMessage({
                     action: 'startWhatsAppAutomation',
-                    numbers: numbers,  // Now sending cleaned, formatted array
-                    message: message
+                    numbers: numbers,
+                    messages: messages
                 }, response => {
                     if (chrome.runtime.lastError) {
                         status.textContent = `Error: ${chrome.runtime.lastError.message}`;
@@ -337,6 +362,35 @@ function setupWhatsAppAuto() {
         });
     } else {
         console.error('Start button or status element not found.');
+        status.textContent = 'Error: UI elements missing.';
+    }
+
+    if (addMessageBtn) {
+        addMessageBtn.addEventListener('click', () => {
+            const blocks = document.getElementById('message-blocks');
+            const index = blocks.children.length;
+            const newBlock = document.createElement('div');
+            newBlock.className = 'message-block';
+            newBlock.innerHTML = `
+                <div class="form-group">
+                    <label for="wa-message-${index}">Message to Send</label>
+                    <textarea id="wa-message-${index}" placeholder="Enter your message here" rows="5"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="wa-attachment-${index}">Attach Image (optional)</label>
+                    <input type="file" id="wa-attachment-${index}" accept="image/*">
+                </div>
+                <button class="remove-message-block btn" style="background-color: #ff4444; margin-top: 10px;">Remove</button>
+            `;
+            blocks.appendChild(newBlock);
+            newBlock.scrollIntoView({ behavior: 'smooth' });
+            newBlock.querySelector('.remove-message-block').addEventListener('click', () => {
+                newBlock.remove();
+            });
+        });
+    } else {
+        console.error('Add message block button not found.');
+        document.getElementById('wa-status').textContent = 'Error: Add message button missing.';
     }
 }
 

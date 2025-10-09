@@ -14,7 +14,6 @@ let isWhatsAppAutomating = false;
 let openTabs = [];
 let activeOperations = new Map();
 
-// --- replace your existing chrome.runtime.onMessage listener with this block ---
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Message received:', request?.action);
 
@@ -73,7 +72,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log('No active popup/dashboard to receive message:', request.action);
                 });
                 safeSend({ status: 'forwarded' });
-                return false; // Don't keep the channel open for these progress updates
+                return false;
             case 'communityScrapingProgress':
             case 'communityScrapingComplete':
             case 'communityScrapingError':
@@ -87,7 +86,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             case 'startWhatsAppAutomation':
                 if (isWhatsAppAutomating) { safeSend({ status: 'already_running' }); return false; }
-                return asyncWrap(() => startWhatsAppAutomation(request.numbers, request.message).then(() => ({ status: 'completed' })));
+                return asyncWrap(() => startWhatsAppAutomation(request.numbers, request.messages).then(() => ({ status: 'completed' })));
 
             case 'groupContactScraping':
                 safeSend({ status: 'handled_locally' });
@@ -104,15 +103,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-// Rest of the background.js code remains unchanged
-async function startWhatsAppAutomation(numbers, message) {
+async function startWhatsAppAutomation(numbers, messages) {
     if (isWhatsAppAutomating) {
         console.warn('Automation already running');
         return;
     }
 
     isWhatsAppAutomating = true;
-    console.log('Starting WhatsApp automation for numbers:', numbers);
+    console.log('Starting WhatsApp automation for numbers:', numbers, 'with messages:', messages);
 
     let waTabId = null;
 
@@ -123,75 +121,78 @@ async function startWhatsAppAutomation(numbers, message) {
             let number = numbers[i];
             if (!number.startsWith('+')) number = '+' + number;
 
-            const encodedMessage = encodeURIComponent(message);
-            const chatUrl = `https://web.whatsapp.com/send?phone=${number}&text=${encodedMessage}`;
-            console.log(`Navigating to chat for ${number} with URL: ${chatUrl}`);
+            for (let j = 0; j < messages.length; j++) {
+                const { text, attachment } = messages[j];
+                const encodedMessage = text ? encodeURIComponent(text) : '';
+                const chatUrl = `https://web.whatsapp.com/send?phone=${number}${text ? `&text=${encodedMessage}` : ''}`;
+                console.log(`Navigating to chat for ${number} with URL: ${chatUrl}`);
 
-            waTabId = await new Promise((resolve, reject) => {
-                if (waTabId) {
-                    chrome.tabs.update(waTabId, { url: chatUrl, active: false }, (tab) => {
-                        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-                        resolve(tab.id);
-                    });
-                } else {
-                    chrome.tabs.create({ url: chatUrl, active: false }, (tab) => {
-                        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-                        openTabs.push(tab.id);
-                        waTabId = tab.id;
-                        resolve(tab.id);
-                    });
-                }
-            });
-
-            await new Promise((resolve, reject) => {
-                let done = false;
-                const listener = (id, changeInfo) => {
-                    if (id === waTabId && changeInfo.status === 'complete') {
-                        done = true;
-                        chrome.tabs.onUpdated.removeListener(listener);
-                        console.log(`Tab ${waTabId} loaded for ${number}`);
-                        resolve();
+                waTabId = await new Promise((resolve, reject) => {
+                    if (waTabId) {
+                        chrome.tabs.update(waTabId, { url: chatUrl, active: false }, (tab) => {
+                            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+                            resolve(tab.id);
+                        });
+                    } else {
+                        chrome.tabs.create({ url: chatUrl, active: false }, (tab) => {
+                            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+                            openTabs.push(tab.id);
+                            waTabId = tab.id;
+                            resolve(tab.id);
+                        });
                     }
-                };
-                chrome.tabs.onUpdated.addListener(listener);
-                setTimeout(() => {
-                    if (!done) {
-                        chrome.tabs.onUpdated.removeListener(listener);
-                        console.warn(`Timeout waiting for ${number}, continuing anyway`);
-                        resolve();
-                    }
-                }, 20000);
-            });
+                });
 
-            await new Promise((resolve, reject) => {
-                chrome.scripting.executeScript({
-                    target: { tabId: waTabId },
-                    files: ['js/wa-auto.js']
-                }, () => {
-                    if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+                await new Promise((resolve, reject) => {
+                    let done = false;
+                    const listener = (id, changeInfo) => {
+                        if (id === waTabId && changeInfo.status === 'complete') {
+                            done = true;
+                            chrome.tabs.onUpdated.removeListener(listener);
+                            console.log(`Tab ${waTabId} loaded for ${number}`);
+                            resolve();
+                        }
+                    };
+                    chrome.tabs.onUpdated.addListener(listener);
+                    setTimeout(() => {
+                        if (!done) {
+                            chrome.tabs.onUpdated.removeListener(listener);
+                            console.warn(`Timeout waiting for ${number}, continuing anyway`);
+                            resolve();
+                        }
+                    }, 20000);
+                });
 
+                await new Promise((resolve, reject) => {
                     chrome.scripting.executeScript({
                         target: { tabId: waTabId },
-                        func: (num, msg) => {
-                            if (typeof window.sendWhatsAppMessage === 'function') {
-                                return window.sendWhatsAppMessage(num, msg);
-                            } else {
-                                console.error('sendWhatsAppMessage not found');
-                                return false;
-                            }
-                        },
-                        args: [number, message]
-                    }, (results) => {
+                        files: ['js/wa-auto.js']
+                    }, () => {
                         if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-                        console.log(`Message send result for ${number}:`, results);
-                        resolve();
+
+                        chrome.scripting.executeScript({
+                            target: { tabId: waTabId },
+                            func: (num, msg, att) => {
+                                if (typeof window.sendWhatsAppMessage === 'function') {
+                                    return window.sendWhatsAppMessage(num, msg, att);
+                                } else {
+                                    console.error('sendWhatsAppMessage not found');
+                                    return false;
+                                }
+                            },
+                            args: [number, text, attachment]
+                        }, (results) => {
+                            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+                            console.log(`Message send result for ${number}:`, results);
+                            resolve();
+                        });
                     });
                 });
-            });
 
-            const delay = Math.random() * 15000 + 15000;
-            console.log(`Waiting ${Math.round(delay / 1000)}s before next...`);
-            await new Promise(r => setTimeout(r, delay));
+                const delay = Math.random() * 15000 + 15000;
+                console.log(`Waiting ${Math.round(delay / 1000)}s before next...`);
+                await new Promise(r => setTimeout(r, delay));
+            }
         }
 
         console.log('All messages processed.');
