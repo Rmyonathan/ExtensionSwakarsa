@@ -9,7 +9,10 @@
     "tabs",
     "storage",
     "webNavigation",
-    "offscreen"
+    "offscreen",
+    "downloads",
+    "clipboardWrite",
+    "notifications"
   ],
   "host_permissions": [
     "https://www.reddit.com/*",

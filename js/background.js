@@ -67,6 +67,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             case 'contactScrapingProgress':
             case 'contactScrapingComplete':
             case 'contactScrapingError':
+            case 'contactScrapingNewContacts':
                 // Forward to all extension pages but don't wait for response
                 chrome.runtime.sendMessage(request).catch(err => {
                     console.log('No active popup/dashboard to receive message:', request.action);

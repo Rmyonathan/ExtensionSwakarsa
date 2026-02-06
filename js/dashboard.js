@@ -453,7 +453,7 @@ function initPostScraper() {
 }
 
 function initContactScraper() {
-    console.log('Initializing contact scraper'); // Debug log
+    console.log('Initializing contact scraper');
     
     // Initialize date range toggle
     const dateRangeSelect = document.getElementById('contact-date-range');
@@ -473,18 +473,14 @@ function initContactScraper() {
     const contactStart = document.getElementById('contact-start');
     if (contactStart) {
         contactStart.addEventListener('click', startContactScraping);
-        console.log('Contact start button listener added'); // Debug log
-    } else {
-        console.error('Contact start button not found'); // Debug log
+        console.log('Contact start button listener added');
     }
     
     // Stop contact scraping
     const contactStop = document.getElementById('contact-stop');
     if (contactStop) {
         contactStop.addEventListener('click', stopContactScraping);
-        console.log('Contact stop button listener added'); // Debug log
-    } else {
-        console.error('Contact stop button not found'); // Debug log
+        console.log('Contact stop button listener added');
     }
     
     // Export contacts
@@ -499,32 +495,240 @@ function initContactScraper() {
         clearContacts.addEventListener('click', clearContactResults);
     }
     
+    // ===== NEW EVENT LISTENERS FOR BULK/EMAIL ACTIONS =====
+    
+    // Select all checkbox in table header
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            toggleSelectAll(this.checked);
+        });
+    }
+    
+    // Select all button
+    const selectAllBtn = document.getElementById('select-all-contacts');
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', function() {
+            toggleSelectAll(true);
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            if (selectAllCheckbox) selectAllCheckbox.checked = true;
+        });
+    }
+    
+    // Deselect all button
+    const deselectAllBtn = document.getElementById('deselect-all-contacts');
+    if (deselectAllBtn) {
+        deselectAllBtn.addEventListener('click', function() {
+            toggleSelectAll(false);
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
+        });
+    }
+    
+    // Delete selected button
+    const deleteSelectedBtn = document.getElementById('delete-selected-contacts');
+    if (deleteSelectedBtn) {
+        deleteSelectedBtn.addEventListener('click', deleteSelectedContacts);
+    }
+    
+    // Copy emails button
+    const copyEmailsBtn = document.getElementById('copy-emails-list');
+    if (copyEmailsBtn) {
+        copyEmailsBtn.addEventListener('click', copyEmailsToClipboard);
+    }
+    
+    // Fast blast button
+    const fastBlastBtn = document.getElementById('fast-blast-emails');
+    if (fastBlastBtn) {
+        fastBlastBtn.addEventListener('click', openGmailFastBlast);
+    }
+    
+    // Personalized email button
+    const personalizedBtn = document.getElementById('personalized-emails');
+    if (personalizedBtn) {
+        personalizedBtn.addEventListener('click', function() {
+            const selected = getSelectedContacts();
+            if (selected.length === 0) {
+                alert('Please select at least one contact');
+                return;
+            }
+            alert('Personalized Email feature coming soon! Selected ' + selected.length + ' contacts.');
+        });
+    }
+    
     // Listen for contact scraping messages
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        console.log('Received message:', request.action); // Debug log
+        console.log('Received message:', request.action);
         
         if (request.action === 'contactScrapingProgress') {
             updateContactProgress(request.data);
+        } else if (request.action === 'contactScrapingNewContacts') {
+            // Real-time update: append new contacts as they're found
+            appendNewContacts(request.data);
         } else if (request.action === 'contactScrapingComplete') {
             contactScrapingComplete(request.data);
         } else if (request.action === 'contactScrapingError') {
             contactScrapingError(request.data);
         }
         
-        return true;
+        // Don't return true - we're not sending an async response
+        return false;
     });
     
-    console.log('Contact scraper initialized'); // Debug log
+    // Load saved contacts from storage on page load
+    loadSavedContacts();
+    
+    console.log('Contact scraper initialized');
+}
+
+// Load saved contacts from chrome.storage.local
+function loadSavedContacts() {
+    chrome.storage.local.get('contactData', function(result) {
+        if (result.contactData && result.contactData.length > 0) {
+            console.log('Loaded saved contacts:', result.contactData.length);
+            displayContactResults(result.contactData);
+            updateContactStatus(`Loaded ${result.contactData.length} saved contacts`);
+        }
+    });
+}
+
+// Append new contacts in real-time (during scraping)
+function appendNewContacts(newContacts) {
+    if (!newContacts || newContacts.length === 0) return;
+    
+    chrome.storage.local.get('contactData', function(result) {
+        let existingData = result.contactData || [];
+        
+        // Filter out duplicates based on email
+        const existingEmails = new Set(existingData.map(c => c.email.toLowerCase()));
+        const uniqueNewContacts = newContacts.filter(c => !existingEmails.has(c.email.toLowerCase()));
+        
+        if (uniqueNewContacts.length === 0) {
+            console.log('No new unique contacts to add');
+            return;
+        }
+        
+        // Append new contacts
+        const updatedData = existingData.concat(uniqueNewContacts);
+        
+        // Save to storage
+        chrome.storage.local.set({ contactData: updatedData }, function() {
+            console.log(`Added ${uniqueNewContacts.length} new contacts. Total: ${updatedData.length}`);
+            
+            // Update UI - append rows instead of re-rendering everything
+            appendContactRows(uniqueNewContacts, existingData.length);
+            
+            // Update count
+            const count = document.getElementById('contacts-count');
+            if (count) {
+                count.textContent = updatedData.length;
+            }
+            
+            updateContactStatus(`Found ${updatedData.length} contacts...`);
+        });
+    });
+}
+
+// Append new contact rows to the table (for real-time updates)
+function appendContactRows(contacts, startIndex) {
+    const tbody = document.getElementById('contacts-table-body');
+    if (!tbody) return;
+    
+    // Remove "No contacts found" row if present
+    if (tbody.rows.length === 1 && tbody.rows[0].cells.length === 1) {
+        const firstCell = tbody.rows[0].cells[0];
+        if (firstCell.colSpan > 1) {
+            tbody.innerHTML = '';
+        }
+    }
+    
+    contacts.forEach((item, i) => {
+        const index = startIndex + i;
+        const row = tbody.insertRow();
+        row.setAttribute('data-index', index);
+        row.setAttribute('data-email', item.email);
+        
+        // Checkbox
+        const cellCheckbox = row.insertCell();
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'contact-checkbox';
+        checkbox.setAttribute('data-index', index);
+        cellCheckbox.appendChild(checkbox);
+        
+        // Email
+        const cellEmail = row.insertCell();
+        cellEmail.textContent = item.email;
+        cellEmail.className = 'email-cell';
+        
+        // Role
+        const cellRole = row.insertCell();
+        cellRole.textContent = item.role || 'General';
+        
+        // Platform (Source)
+        const cellSource = row.insertCell();
+        cellSource.textContent = item.source;
+        
+        // Keyword
+        const cellKeyword = row.insertCell();
+        cellKeyword.textContent = item.keyword;
+        
+        // Overview
+        const cellOverview = row.insertCell();
+        cellOverview.textContent = item.overview || '';
+        cellOverview.style.maxWidth = '150px';
+        cellOverview.style.overflow = 'hidden';
+        cellOverview.style.textOverflow = 'ellipsis';
+        cellOverview.style.whiteSpace = 'nowrap';
+        cellOverview.title = item.overview || '';
+        
+        // Actions
+        const cellActions = row.insertCell();
+        cellActions.className = 'action-cell';
+        
+        // Edit button (pencil icon)
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-sm btn-edit';
+        editBtn.innerHTML = '&#9998;';
+        editBtn.title = 'Edit contact';
+        editBtn.style.padding = '2px 6px';
+        editBtn.style.fontSize = '11px';
+        editBtn.style.marginRight = '4px';
+        editBtn.addEventListener('click', function() {
+            openEditModal(index, item);
+        });
+        cellActions.appendChild(editBtn);
+        
+        // Delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-sm btn-danger';
+        deleteBtn.innerHTML = '&#128465;';
+        deleteBtn.title = 'Delete contact';
+        deleteBtn.style.padding = '2px 6px';
+        deleteBtn.style.fontSize = '11px';
+        deleteBtn.addEventListener('click', function() {
+            deleteContactByIndex(index);
+        });
+        cellActions.appendChild(deleteBtn);
+        
+        // Highlight new row briefly
+        row.style.backgroundColor = '#d4edda';
+        setTimeout(() => {
+            row.style.transition = 'background-color 0.5s';
+            row.style.backgroundColor = '';
+        }, 500);
+    });
 }
 
 function startContactScraping() {
-    console.log('Start contact scraping button clicked'); // Debug log
+    console.log('Start contact scraping button clicked');
     
     const keywords = document.getElementById('contact-keywords').value;
     const dateRange = document.getElementById('contact-date-range').value;
     const location = document.getElementById('contact-location').value;
+    const role = document.getElementById('contact-role')?.value || '';
     
-    console.log('Form values:', { keywords, dateRange, location }); // Debug log
+    console.log('Form values:', { keywords, dateRange, location, role });
     
     if (!keywords) {
         alert('Please enter keywords to search');
@@ -535,12 +739,14 @@ function startContactScraping() {
         linkedinConfig: {
             keywords: keywords,
             dateRange: dateRange,
-            location: location
+            location: location,
+            role: role
         },
         instagramConfig: {
             keywords: keywords,
             dateRange: dateRange,
-            location: location
+            location: location,
+            role: role
         }
     };
     
@@ -562,19 +768,27 @@ function startContactScraping() {
     updateContactUIForScraping(true);
     updateContactStatus('Starting contact scraping...', 'processing');
     
-    console.log('Sending startContactScraping message with config:', config); // Debug log
-    
-    // Send message to background script
-    chrome.runtime.sendMessage({
-        action: 'startContactScraping',
-        config: config
-    }, function(response) {
-        console.log('Background response:', response); // Debug log
-        if (chrome.runtime.lastError) {
-            console.error('Runtime error:', chrome.runtime.lastError); // Debug log
-            updateContactStatus('Error: ' + chrome.runtime.lastError.message, 'error');
-            updateContactUIForScraping(false);
-        }
+    // Clear previous results before starting new scrape
+    chrome.storage.local.set({ contactData: [] }, function() {
+        const tbody = document.getElementById('contacts-table-body');
+        if (tbody) tbody.innerHTML = '';
+        const count = document.getElementById('contacts-count');
+        if (count) count.textContent = '0';
+        
+        console.log('Sending startContactScraping message with config:', config);
+        
+        // Send message to background script
+        chrome.runtime.sendMessage({
+            action: 'startContactScraping',
+            config: config
+        }, function(response) {
+            console.log('Background response:', response);
+            if (chrome.runtime.lastError) {
+                console.error('Runtime error:', chrome.runtime.lastError);
+                updateContactStatus('Error: ' + chrome.runtime.lastError.message, 'error');
+                updateContactUIForScraping(false);
+            }
+        });
     });
 }
 
@@ -621,69 +835,94 @@ function contactScrapingError(error) {
 }
 
 function displayContactResults(data) {
-    const container = document.getElementById('contacts-container');
+    const tbody = document.getElementById('contacts-table-body');
     const count = document.getElementById('contacts-count');
     
     if (count) {
-        count.textContent = `${data.length} contacts found`;
+        count.textContent = data.length;
     }
     
-    if (container) {
-        container.innerHTML = '';
+    if (tbody) {
+        tbody.innerHTML = '';
         
         if (data.length === 0) {
-            container.innerHTML = '<p>No contacts found</p>';
+            const row = tbody.insertRow();
+            const cell = row.insertCell();
+            cell.colSpan = 7;
+            cell.textContent = 'No contacts found';
+            cell.style.textAlign = 'center';
+            cell.style.padding = '20px';
             return;
         }
         
-        // Create table
-        const table = document.createElement('table');
-        table.className = 'contacts-table';
-        
-        // Create header
-        const header = table.createTHead();
-        const headerRow = header.insertRow();
-        const headers = ['No', 'Email', 'Overview', 'Source', 'Keyword'];
-        
-        headers.forEach(text => {
-            const th = document.createElement('th');
-            th.textContent = text;
-            headerRow.appendChild(th);
-        });
-        
-        // Create body
-        const tbody = document.createElement('tbody');
-        
         data.forEach((item, index) => {
             const row = tbody.insertRow();
+            row.setAttribute('data-index', index);
+            row.setAttribute('data-email', item.email);
             
-            // Number
-            const cellNo = row.insertCell();
-            cellNo.textContent = index + 1;
+            // Checkbox
+            const cellCheckbox = row.insertCell();
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'contact-checkbox';
+            checkbox.setAttribute('data-index', index);
+            cellCheckbox.appendChild(checkbox);
             
             // Email
             const cellEmail = row.insertCell();
             cellEmail.textContent = item.email;
+            cellEmail.className = 'email-cell';
             
-            // Overview
-            const cellOverview = row.insertCell();
-            cellOverview.textContent = item.overview;
-            cellOverview.style.maxWidth = '300px';
-            cellOverview.style.overflow = 'hidden';
-            cellOverview.style.textOverflow = 'ellipsis';
-            cellOverview.title = item.overview;
+            // Role
+            const cellRole = row.insertCell();
+            cellRole.textContent = item.role || 'General';
             
-            // Source
+            // Platform (Source)
             const cellSource = row.insertCell();
             cellSource.textContent = item.source;
             
             // Keyword
             const cellKeyword = row.insertCell();
             cellKeyword.textContent = item.keyword;
+            
+            // Overview
+            const cellOverview = row.insertCell();
+            cellOverview.textContent = item.overview || '';
+            cellOverview.style.maxWidth = '150px';
+            cellOverview.style.overflow = 'hidden';
+            cellOverview.style.textOverflow = 'ellipsis';
+            cellOverview.style.whiteSpace = 'nowrap';
+            cellOverview.title = item.overview || '';
+            
+            // Actions
+            const cellActions = row.insertCell();
+            cellActions.className = 'action-cell';
+            
+            // Edit button (pencil icon)
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn btn-sm btn-edit';
+            editBtn.innerHTML = '&#9998;'; // Pencil icon
+            editBtn.title = 'Edit contact';
+            editBtn.style.padding = '2px 6px';
+            editBtn.style.fontSize = '11px';
+            editBtn.style.marginRight = '4px';
+            editBtn.addEventListener('click', function() {
+                openEditModal(index, item);
+            });
+            cellActions.appendChild(editBtn);
+            
+            // Delete button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-sm btn-danger';
+            deleteBtn.innerHTML = '&#128465;'; // Trash icon
+            deleteBtn.title = 'Delete contact';
+            deleteBtn.style.padding = '2px 6px';
+            deleteBtn.style.fontSize = '11px';
+            deleteBtn.addEventListener('click', function() {
+                deleteContactByIndex(index);
+            });
+            cellActions.appendChild(deleteBtn);
         });
-        
-        table.appendChild(tbody);
-        container.appendChild(table);
     }
 }
 
@@ -695,9 +934,9 @@ function exportContactsToCSV() {
         }
         
         const data = result.contactData;
-        const headers = ['Email', 'Overview', 'Source', 'Keyword'];
+        const headers = ['Email', 'Role', 'Platform', 'Keyword', 'Overview'];
         const rows = data.map(item => 
-            `"${item.email}","${item.overview.replace(/"/g, '""')}","${item.source}","${item.keyword}"`
+            `"${item.email}","${item.role || 'General'}","${item.source}","${item.keyword}","${(item.overview || '').replace(/"/g, '""')}"`
         );
         
         const csv = [headers.join(','), ...rows].join('\n');
@@ -706,7 +945,7 @@ function exportContactsToCSV() {
         
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'social_media_contacts.csv';
+        a.download = `contacts_export_${new Date().toISOString().split('T')[0]}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -752,6 +991,234 @@ function updateContactStatus(message, status) {
             statusElem.classList.add(`status-${status}`);
         }
     }
+}
+
+// ===== HELPER FUNCTIONS FOR CONTACT SCRAPER =====
+
+// Get all selected contacts from storage
+function getSelectedContacts() {
+    const checkboxes = document.querySelectorAll('.contact-checkbox:checked');
+    const selectedContacts = [];
+    
+    chrome.storage.local.get('contactData', function(result) {
+        const data = result.contactData || [];
+        checkboxes.forEach(checkbox => {
+            const index = parseInt(checkbox.getAttribute('data-index'));
+            if (data[index]) {
+                selectedContacts.push(data[index]);
+            }
+        });
+    });
+    
+    // Synchronous version for immediate use
+    const checkboxesSync = document.querySelectorAll('.contact-checkbox:checked');
+    const indices = [];
+    checkboxesSync.forEach(cb => {
+        indices.push(parseInt(cb.getAttribute('data-index')));
+    });
+    return indices;
+}
+
+// Get selected contacts with data (async)
+function getSelectedContactsData(callback) {
+    chrome.storage.local.get('contactData', function(result) {
+        const data = result.contactData || [];
+        const checkboxes = document.querySelectorAll('.contact-checkbox:checked');
+        const selectedContacts = [];
+        
+        checkboxes.forEach(checkbox => {
+            const index = parseInt(checkbox.getAttribute('data-index'));
+            if (data[index]) {
+                selectedContacts.push(data[index]);
+            }
+        });
+        
+        callback(selectedContacts);
+    });
+}
+
+// Toggle all checkboxes
+function toggleSelectAll(checked) {
+    const checkboxes = document.querySelectorAll('.contact-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = checked;
+    });
+}
+
+// Delete selected contacts
+function deleteSelectedContacts() {
+    const checkboxes = document.querySelectorAll('.contact-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Please select at least one contact to delete');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${checkboxes.length} selected contacts?`)) {
+        return;
+    }
+    
+    const indicesToDelete = [];
+    checkboxes.forEach(checkbox => {
+        indicesToDelete.push(parseInt(checkbox.getAttribute('data-index')));
+    });
+    
+    // Sort in descending order to delete from end first
+    indicesToDelete.sort((a, b) => b - a);
+    
+    chrome.storage.local.get('contactData', function(result) {
+        let data = result.contactData || [];
+        
+        indicesToDelete.forEach(index => {
+            data.splice(index, 1);
+        });
+        
+        chrome.storage.local.set({ contactData: data }, function() {
+            displayContactResults(data);
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
+        });
+    });
+}
+
+// Delete single contact by index
+function deleteContactByIndex(index) {
+    if (!confirm('Are you sure you want to delete this contact?')) {
+        return;
+    }
+    
+    chrome.storage.local.get('contactData', function(result) {
+        let data = result.contactData || [];
+        data.splice(index, 1);
+        
+        chrome.storage.local.set({ contactData: data }, function() {
+            displayContactResults(data);
+        });
+    });
+}
+
+// Open edit modal
+function openEditModal(index, item) {
+    const modal = document.getElementById('edit-contact-modal');
+    if (!modal) return;
+    
+    // Populate fields
+    document.getElementById('edit-contact-index').value = index;
+    document.getElementById('edit-email').value = item.email || '';
+    document.getElementById('edit-role').value = item.role || '';
+    document.getElementById('edit-keyword').value = item.keyword || '';
+    document.getElementById('edit-overview').value = item.overview || '';
+    
+    // Show modal
+    modal.style.display = 'flex';
+    
+    // Add event listeners (remove old ones first to prevent duplicates)
+    const closeBtn = document.getElementById('close-edit-modal');
+    const cancelBtn = document.getElementById('cancel-edit-contact');
+    const saveBtn = document.getElementById('save-edit-contact');
+    
+    closeBtn.onclick = closeEditModal;
+    cancelBtn.onclick = closeEditModal;
+    saveBtn.onclick = saveContactEdit;
+    
+    // Close on overlay click
+    modal.onclick = function(e) {
+        if (e.target === modal) {
+            closeEditModal();
+        }
+    };
+}
+
+// Close edit modal
+function closeEditModal() {
+    const modal = document.getElementById('edit-contact-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Save contact edit
+function saveContactEdit() {
+    const index = parseInt(document.getElementById('edit-contact-index').value);
+    const email = document.getElementById('edit-email').value.trim();
+    const role = document.getElementById('edit-role').value.trim();
+    const keyword = document.getElementById('edit-keyword').value.trim();
+    const overview = document.getElementById('edit-overview').value.trim();
+    
+    if (!email) {
+        alert('Email is required');
+        return;
+    }
+    
+    chrome.storage.local.get('contactData', function(result) {
+        let data = result.contactData || [];
+        
+        if (index >= 0 && index < data.length) {
+            data[index].email = email;
+            data[index].role = role;
+            data[index].keyword = keyword;
+            data[index].overview = overview;
+            
+            chrome.storage.local.set({ contactData: data }, function() {
+                displayContactResults(data);
+                closeEditModal();
+                console.log('Contact updated successfully');
+            });
+        }
+    });
+}
+
+// Copy emails to clipboard
+function copyEmailsToClipboard() {
+    getSelectedContactsData(function(selectedContacts) {
+        if (selectedContacts.length === 0) {
+            // If no selection, copy all
+            chrome.storage.local.get('contactData', function(result) {
+                const data = result.contactData || [];
+                if (data.length === 0) {
+                    alert('No contacts to copy');
+                    return;
+                }
+                const emailList = data.map(c => c.email).join(', ');
+                navigator.clipboard.writeText(emailList).then(() => {
+                    alert(`${data.length} emails copied to clipboard`);
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                    alert('Failed to copy emails');
+                });
+            });
+        } else {
+            const emailList = selectedContacts.map(c => c.email).join(', ');
+            navigator.clipboard.writeText(emailList).then(() => {
+                alert(`${selectedContacts.length} emails copied to clipboard`);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy emails');
+            });
+        }
+    });
+}
+
+// Open Gmail Fast Blast
+function openGmailFastBlast() {
+    getSelectedContactsData(function(selectedContacts) {
+        if (selectedContacts.length === 0) {
+            // If no selection, use all
+            chrome.storage.local.get('contactData', function(result) {
+                const data = result.contactData || [];
+                if (data.length === 0) {
+                    alert('No contacts for fast blast');
+                    return;
+                }
+                const emailList = data.map(c => c.email).join(',');
+                const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${emailList}`;
+                window.open(gmailUrl, '_blank');
+            });
+        } else {
+            const emailList = selectedContacts.map(c => c.email).join(',');
+            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${emailList}`;
+            window.open(gmailUrl, '_blank');
+        }
+    });
 }
 
 function initCommunityScraper() {

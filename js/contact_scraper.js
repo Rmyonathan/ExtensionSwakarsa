@@ -17,28 +17,105 @@ export async function startContactScraping(config) {
             data: 0
         });
 
-        // Scrape LinkedIn
-        if (config.linkedinConfig && config.linkedinConfig.keywords) {
-            console.log('Starting LinkedIn scraping');
-            const linkedinResults = await scrapeBingForEmails(
-                'linkedin',
-                config.linkedinConfig.keywords,
-                config.linkedinConfig.dateRange,
-                config.linkedinConfig.location
-            );
-            allResults = allResults.concat(linkedinResults);
+        // Parse multiple keywords from comma-separated string
+        const keywordsArray = config.linkedinConfig && config.linkedinConfig.keywords
+            ? config.linkedinConfig.keywords.split(',').map(k => k.trim()).filter(k => k)
+            : [];
+        
+        // Parse multiple roles from comma-separated string
+        const roleInput = config.linkedinConfig?.role || config.instagramConfig?.role || '';
+        console.log('Raw role input:', roleInput);
+        
+        const rolesArray = roleInput
+            ? roleInput.split(',').map(r => r.trim()).filter(r => r)
+            : ['General'];
+        
+        // Calculate total iterations for progress
+        const totalIterations = keywordsArray.length * rolesArray.length * 2; // *2 for LinkedIn and Instagram
+        let completedIterations = 0;
+
+        console.log('Parsed Keywords Array:', keywordsArray);
+        console.log('Parsed Roles Array:', rolesArray);
+        console.log('Total iterations:', totalIterations);
+
+        // Scrape LinkedIn with multiple keywords and roles
+        if (config.linkedinConfig && keywordsArray.length > 0) {
+            console.log('Starting LinkedIn scraping for keywords:', keywordsArray, 'and roles:', rolesArray);
+            
+            for (const keyword of keywordsArray) {
+                for (const role of rolesArray) {
+                    if (!isContactScraping) break;
+                    
+                    const searchKeyword = role !== 'General' ? `${role} ${keyword}` : keyword;
+                    console.log(`Searching LinkedIn: role="${role}", keyword="${keyword}", query="${searchKeyword}"`);
+                    
+                    const linkedinResults = await scrapeBingForEmails(
+                        'linkedin',
+                        searchKeyword,
+                        config.linkedinConfig.dateRange,
+                        config.linkedinConfig.location,
+                        role,
+                        keyword
+                    );
+                    
+                    // Send new contacts immediately for real-time display
+                    if (linkedinResults.length > 0) {
+                        chrome.runtime.sendMessage({
+                            action: 'contactScrapingNewContacts',
+                            data: linkedinResults
+                        });
+                    }
+                    
+                    allResults = allResults.concat(linkedinResults);
+                    
+                    completedIterations++;
+                    const progress = Math.min(100, Math.floor((completedIterations / totalIterations) * 100));
+                    chrome.runtime.sendMessage({
+                        action: 'contactScrapingProgress',
+                        data: progress
+                    });
+                }
+            }
         }
 
-        // Scrape Instagram
-        if (config.instagramConfig && config.instagramConfig.keywords && isContactScraping) {
-            console.log('Starting Instagram scraping');
-            const instagramResults = await scrapeBingForEmails(
-                'instagram',
-                config.instagramConfig.keywords,
-                config.instagramConfig.dateRange,
-                config.instagramConfig.location
-            );
-            allResults = allResults.concat(instagramResults);
+        // Scrape Instagram with multiple keywords and roles
+        if (config.instagramConfig && keywordsArray.length > 0 && isContactScraping) {
+            console.log('Starting Instagram scraping for keywords:', keywordsArray, 'and roles:', rolesArray);
+            
+            for (const keyword of keywordsArray) {
+                for (const role of rolesArray) {
+                    if (!isContactScraping) break;
+                    
+                    const searchKeyword = role !== 'General' ? `${role} ${keyword}` : keyword;
+                    console.log(`Searching Instagram: role="${role}", keyword="${keyword}", query="${searchKeyword}"`);
+                    
+                    const instagramResults = await scrapeBingForEmails(
+                        'instagram',
+                        searchKeyword,
+                        config.instagramConfig.dateRange,
+                        config.instagramConfig.location,
+                        role,
+                        keyword
+                    );
+                    
+                    // Send new contacts immediately for real-time display
+                    if (instagramResults.length > 0) {
+                        chrome.runtime.sendMessage({
+                            action: 'contactScrapingNewContacts',
+                            data: instagramResults
+                        });
+                    }
+                    
+                    allResults = allResults.concat(instagramResults);
+                    
+                    completedIterations++;
+                    const progress = Math.min(100, Math.floor((completedIterations / totalIterations) * 100));
+                    chrome.runtime.sendMessage({
+                        action: 'contactScrapingProgress',
+                        data: progress
+                    });
+                }
+            }
         }
 
         if (isContactScraping) {
@@ -60,36 +137,64 @@ export async function startContactScraping(config) {
     cleanupContactTabs();
 }
 
-export async function scrapeBingForEmails(source, keywords, dateRange, location) {
-    console.log(`Scraping Bing for ${source} with keywords: ${keywords}`);
+export async function scrapeBingForEmails(source, keywords, dateRange, location, role, originalKeyword) {
+    console.log(`Scraping Bing for ${source} with keywords: ${keywords}, role: ${role}`);
     
-    const baseQuery = `site:${source}.com ${keywords} "@gmail.com"`;
-    let fullQuery = baseQuery;
+    // Enhanced email patterns for searching
+    const emailPatterns = [
+        '"@gmail.com"',
+        '"info@"',
+        '"career@"',
+        '"careers@"',
+        '"hr@"',
+        '"recruitment@"',
+        '"contact@"',
+        '"hello@"'
+    ];
     
-    if (dateRange && dateRange !== 'custom') {
-        const dateStr = getDateRange(dateRange);
-        fullQuery += ` after:${dateStr.start} before:${dateStr.end}`;
-    } else if (dateRange === 'custom' && contactScrapingConfig) {
-        fullQuery += ` after:${contactScrapingConfig.linkedinConfig.dateRange.start} before:${contactScrapingConfig.linkedinConfig.dateRange.end}`;
-    }
+    let allEmails = [];
     
-    if (location) {
-        fullQuery += ` location:${location}`;
-    }
-    
-    console.log('Google query:', fullQuery);
+    // Loop through all email patterns
+    for (const emailPattern of emailPatterns) {
+        if (!isContactScraping) break;
+        
+        const baseQuery = `site:${source}.com ${keywords} ${emailPattern}`;
+        let fullQuery = baseQuery;
+        
+        if (dateRange && dateRange !== 'custom') {
+            const dateStr = getDateRange(dateRange);
+            fullQuery += ` after:${dateStr.start} before:${dateStr.end}`;
+        } else if (dateRange === 'custom' && contactScrapingConfig) {
+            fullQuery += ` after:${contactScrapingConfig.linkedinConfig.dateRange.start} before:${contactScrapingConfig.linkedinConfig.dateRange.end}`;
+        }
+        
+        if (location) {
+            fullQuery += ` location:${location}`;
+        }
+        
+        console.log(`Query for ${emailPattern}:`, fullQuery);
 
-    try {
-        console.log(`Starting recursive pagination for ${source}`);
-        const { emails, pageContent } = await scrapeBingPage(fullQuery, 1, source, keywords);
-        
-        console.log(`Total unique emails found for ${source}: ${emails.length}`);
-        return emails;
-        
-    } catch (error) {
-        console.error(`Error scraping ${source}:`, error);
-        return [];
+        try {
+            const { emails } = await scrapeBingPage(fullQuery, 1, source, originalKeyword || keywords, role);
+            allEmails = allEmails.concat(emails);
+        } catch (error) {
+            console.error(`Error scraping with pattern ${emailPattern}:`, error);
+        }
     }
+    
+    // Remove duplicates
+    const uniqueEmails = [];
+    const emailSet = new Set();
+    
+    allEmails.forEach(emailObj => {
+        if (!emailSet.has(emailObj.email.toLowerCase())) {
+            emailSet.add(emailObj.email.toLowerCase());
+            uniqueEmails.push(emailObj);
+        }
+    });
+    
+    console.log(`Total unique emails found for ${source}: ${uniqueEmails.length}`);
+    return uniqueEmails;
 }
 
 function getDateRange(range) {
@@ -119,7 +224,7 @@ function getDateRange(range) {
     };
 }
 
-export async function scrapeBingPage(query, page, source, keyword) {
+export async function scrapeBingPage(query, page, source, keyword, role) {
     console.log(`Opening Google page ${page} for query: ${query}`);
     return new Promise((resolve, reject) => {
         const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
@@ -151,10 +256,58 @@ export async function scrapeBingPage(query, page, source, keyword) {
                             await new Promise(r => setTimeout(r, 1000));
                         }
 
-                        // Extract emails and get page text
-                        const emailRegex = /[a-zA-Z0-9._%+-]+@gmail\.com/g;
+                        // ENHANCED EMAIL EXTRACTION WITH MULTIPLE PATTERNS
                         const pageText = document.body.innerText;
-                        const matches = [...new Set(pageText.match(emailRegex) || [])]; // ← FIXED: changed 'text' to 'pageText'
+                        const emailRegexes = [
+                            /[a-zA-Z0-9._%+-]+@gmail\.com/gi,
+                            /info@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /career(?:s)?@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /hr@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /recruitment@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /contact@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /hello@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi,
+                            /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi
+                        ];
+                        
+                        // Extract search results with their URLs and text
+                        const searchResults = [];
+                        const resultElements = document.querySelectorAll('div.g, div[data-sokoban-container]');
+                        resultElements.forEach(el => {
+                            const linkEl = el.querySelector('a[href^="http"]');
+                            const textContent = el.innerText || '';
+                            if (linkEl && linkEl.href) {
+                                searchResults.push({
+                                    url: linkEl.href,
+                                    text: textContent
+                                });
+                            }
+                        });
+                        
+                        // Find emails and associate with URLs
+                        const emailsWithUrls = [];
+                        let allMatches = [];
+                        
+                        emailRegexes.forEach(regex => {
+                            const matches = pageText.match(regex) || [];
+                            allMatches = allMatches.concat(matches);
+                        });
+                        
+                        const uniqueEmails = [...new Set(allMatches)];
+                        
+                        uniqueEmails.forEach(email => {
+                            // Find which search result contains this email
+                            let sourceUrl = '';
+                            for (const result of searchResults) {
+                                if (result.text.includes(email)) {
+                                    sourceUrl = result.url;
+                                    break;
+                                }
+                            }
+                            emailsWithUrls.push({
+                                email: email,
+                                sourceUrl: sourceUrl
+                            });
+                        });
 
                         // Try to find and click the "Next" button
                         const nextBtn = [...document.querySelectorAll('a')]
@@ -163,15 +316,15 @@ export async function scrapeBingPage(query, page, source, keyword) {
                         if (nextBtn) {
                             nextBtn.click();
                             return { 
-                                emails: matches, 
+                                emails: emailsWithUrls, 
                                 hasNext: true,
-                                pageText: pageText // Return page text for context
+                                pageText: pageText
                             };
                         } else {
                             return { 
-                                emails: matches, 
+                                emails: emailsWithUrls, 
                                 hasNext: false,
-                                pageText: pageText // Return page text for context
+                                pageText: pageText
                             };
                         }
                     }
@@ -189,28 +342,31 @@ export async function scrapeBingPage(query, page, source, keyword) {
                         return;
                     }
 
-                    // === REPLACE THIS PART ===
-                    // Process emails with context and duplicate filtering
-                    const newEmails = result.emails.map(email => {
-                        // Find context around the email
+                    // Process emails with context, URL, and include role
+                    const newEmails = result.emails.map(emailObj => {
+                        const email = emailObj.email;
+                        const sourceUrl = emailObj.sourceUrl || '';
                         const emailIndex = result.pageText.indexOf(email);
                         let context = `Found on ${source} search`;
                         
                         if (emailIndex !== -1) {
                             const start = Math.max(0, emailIndex - 100);
-                            const end = Math.min(result.pageText.length, emailIndex + email.length + 100);
-                            context = result.pageText.substring(start, end).replace(/\s+/g, ' ').trim();
+                            const end = Math.min(result.pageText.length, email.length + 100);
+                            context = result.pageText.substring(start, emailIndex + email.length + 100).replace(/\s+/g, ' ').trim();
                         }
                         
                         return {
-                            email: email.toLowerCase(), // normalize case
+                            email: email.toLowerCase(),
                             overview: context,
                             source: source.charAt(0).toUpperCase() + source.slice(1),
-                            keyword: keyword
+                            sourceUrl: sourceUrl,
+                            keyword: keyword,
+                            role: role || 'General',
+                            selected: false
                         };
                     });
 
-                    // Better duplicate filtering - check exact email match
+                    // Filter duplicates
                     const uniqueNewEmails = newEmails.filter(newEmail => 
                         !collectedEmails.some(existing => 
                             existing.email.toLowerCase() === newEmail.email.toLowerCase()
@@ -218,12 +374,10 @@ export async function scrapeBingPage(query, page, source, keyword) {
                     );
 
                     collectedEmails.push(...uniqueNewEmails);
-                    // === END REPLACEMENT ===
 
                     console.log(`Collected ${collectedEmails.length} so far (attempt ${attempt})`);
 
                     if (result.hasNext && attempt < 10) {
-                        // Wait for next page to load, then scrape again
                         setTimeout(() => scrapeLoop(attempt + 1), 4000 + Math.random() * 2000);
                     } else {
                         cleanupContactTab(tabId);
@@ -324,3 +478,130 @@ export function cleanupContactTab(tabId) {
         });
     });
 }
+
+// ==================== UTILITY FUNCTIONS ====================
+
+// Copy email list to clipboard
+export function copyEmailList(emails) {
+    const emailList = emails.map(e => e.email).join(', ');
+    navigator.clipboard.writeText(emailList).then(() => {
+        console.log('Emails copied to clipboard');
+        chrome.runtime.sendMessage({
+            action: 'showNotification',
+            data: {
+                title: 'Success',
+                message: `${emails.length} emails copied to clipboard`
+            }
+        });
+    }).catch(err => {
+        console.error('Failed to copy emails:', err);
+    });
+}
+
+// Open Gmail compose with Fast Blast (BCC)
+export function openFastBlast(emails, subject = '', body = '') {
+    const emailList = emails.map(e => e.email).join(',');
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&bcc=${emailList}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    chrome.tabs.create({ url: gmailUrl, active: true }, (tab) => {
+        console.log('Opened Gmail compose for fast blast');
+    });
+}
+
+// Open personalized email modal (placeholder - sends message to UI)
+export function openPersonalizedEmailModal(emails) {
+    chrome.runtime.sendMessage({
+        action: 'openPersonalizedEmailModal',
+        data: { emails: emails }
+    });
+}
+
+// Export contacts to CSV
+export function exportToCSV(contacts) {
+    const headers = ['Email', 'Role', 'Platform', 'Source URL', 'Keyword', 'Overview'];
+    const csvRows = [];
+    
+    // Add headers
+    csvRows.push(headers.join(','));
+    
+    // Add data rows
+    contacts.forEach(contact => {
+        const row = [
+            `"${contact.email}"`,
+            `"${contact.role || 'General'}"`,
+            `"${contact.source}"`,
+            `"${contact.sourceUrl || ''}"`,
+            `"${contact.keyword}"`,
+            `"${(contact.overview || '').replace(/"/g, '""')}"`
+        ];
+        csvRows.push(row.join(','));
+    });
+    
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    
+    chrome.downloads.download({
+        url: url,
+        filename: `contacts_export_${new Date().toISOString().split('T')[0]}.csv`
+    });
+}
+
+// Email validation
+export function validateEmail(email) {
+    const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return re.test(email);
+}
+
+// Select all contacts
+export function selectAllContacts() {
+    chrome.runtime.sendMessage({
+        action: 'selectAllContacts'
+    });
+}
+
+// Deselect all contacts
+export function deselectAllContacts() {
+    chrome.runtime.sendMessage({
+        action: 'deselectAllContacts'
+    });
+}
+
+// Delete selected contacts
+export function deleteSelectedContacts(contactIds) {
+    chrome.runtime.sendMessage({
+        action: 'deleteSelectedContacts',
+        data: { ids: contactIds }
+    });
+}
+
+// Edit contact
+export function editContact(contactId, updates) {
+    chrome.runtime.sendMessage({
+        action: 'editContact',
+        data: { id: contactId, updates: updates }
+    });
+}
+
+// Bulk edit contacts
+export function bulkEditContacts(contactIds, field, value) {
+    chrome.runtime.sendMessage({
+        action: 'bulkEditContacts',
+        data: { ids: contactIds, field: field, value: value }
+    });
+}
+
+// Rate limiting to avoid blocks
+export const rateLimiter = {
+    lastRequest: 0,
+    minDelay: 3000,
+    async wait() {
+        const now = Date.now();
+        const timeSinceLast = now - this.lastRequest;
+        if (timeSinceLast < this.minDelay) {
+            await new Promise(resolve => 
+                setTimeout(resolve, this.minDelay - timeSinceLast)
+            );
+        }
+        this.lastRequest = Date.now();
+    }
+};
