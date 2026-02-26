@@ -31,7 +31,7 @@ export async function startContactScraping(config) {
             : ['General'];
         
         // Calculate total iterations for progress
-        const totalIterations = keywordsArray.length * rolesArray.length * 2; // *2 for LinkedIn and Instagram
+        const totalIterations = keywordsArray.length * rolesArray.length * 3; // *3 for LinkedIn, Instagram, and Threads
         let completedIterations = 0;
 
         console.log('Parsed Keywords Array:', keywordsArray);
@@ -118,6 +118,46 @@ export async function startContactScraping(config) {
             }
         }
 
+        // Scrape Threads with multiple keywords and roles
+        if (config.threadsConfig && keywordsArray.length > 0 && isContactScraping) {
+            console.log('Starting Threads scraping for keywords:', keywordsArray, 'and roles:', rolesArray);
+            
+            for (const keyword of keywordsArray) {
+                for (const role of rolesArray) {
+                    if (!isContactScraping) break;
+                    
+                    const searchKeyword = role !== 'General' ? `${role} ${keyword}` : keyword;
+                    console.log(`Searching Threads: role="${role}", keyword="${keyword}", query="${searchKeyword}"`);
+                    
+                    const threadsResults = await scrapeBingForEmails(
+                        'threads',
+                        searchKeyword,
+                        config.threadsConfig.dateRange,
+                        config.threadsConfig.location,
+                        role,
+                        keyword
+                    );
+                    
+                    // Send new contacts immediately for real-time display
+                    if (threadsResults.length > 0) {
+                        chrome.runtime.sendMessage({
+                            action: 'contactScrapingNewContacts',
+                            data: threadsResults
+                        });
+                    }
+                    
+                    allResults = allResults.concat(threadsResults);
+                    
+                    completedIterations++;
+                    const progress = Math.min(100, Math.floor((completedIterations / totalIterations) * 100));
+                    chrome.runtime.sendMessage({
+                        action: 'contactScrapingProgress',
+                        data: progress
+                    });
+                }
+            }
+        }
+
         if (isContactScraping) {
             console.log('Contact scraping completed with results:', allResults.length);
             chrome.runtime.sendMessage({
@@ -137,8 +177,16 @@ export async function startContactScraping(config) {
     cleanupContactTabs();
 }
 
+const SOURCE_DOMAINS = {
+    linkedin: 'linkedin.com',
+    instagram: 'instagram.com',
+    threads: 'threads.net'
+};
+
 export async function scrapeBingForEmails(source, keywords, dateRange, location, role, originalKeyword) {
     console.log(`Scraping Bing for ${source} with keywords: ${keywords}, role: ${role}`);
+    
+    const domain = SOURCE_DOMAINS[source] || `${source}.com`;
     
     // Enhanced email patterns for searching
     const emailPatterns = [
@@ -158,7 +206,7 @@ export async function scrapeBingForEmails(source, keywords, dateRange, location,
     for (const emailPattern of emailPatterns) {
         if (!isContactScraping) break;
         
-        const baseQuery = `site:${source}.com ${keywords} ${emailPattern}`;
+        const baseQuery = `site:${domain} ${keywords} ${emailPattern}`;
         let fullQuery = baseQuery;
         
         if (dateRange && dateRange !== 'custom') {
@@ -342,32 +390,36 @@ export async function scrapeBingPage(query, page, source, keyword, role) {
                         return;
                     }
 
-                    // Process emails with context, URL, and include role
+                    // Process emails with cleaned address, context, and role
                     const newEmails = result.emails.map(emailObj => {
-                        const email = emailObj.email;
-                        const sourceUrl = emailObj.sourceUrl || '';
+                        const rawEmail = (emailObj.email || '').toLowerCase();
+                        const strictMatch = rawEmail.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
+                        if (!strictMatch) return null;
+                        const email = strictMatch[0];
+
                         const emailIndex = result.pageText.indexOf(email);
                         let context = `Found on ${source} search`;
                         
                         if (emailIndex !== -1) {
                             const start = Math.max(0, emailIndex - 100);
-                            const end = Math.min(result.pageText.length, email.length + 100);
-                            context = result.pageText.substring(start, emailIndex + email.length + 100).replace(/\s+/g, ' ').trim();
+                            const end = Math.min(result.pageText.length, emailIndex + email.length + 100);
+                            context = result.pageText.substring(start, end).replace(/\s+/g, ' ').trim();
                         }
                         
                         return {
-                            email: email.toLowerCase(),
+                            email: email,
                             overview: context,
                             source: source.charAt(0).toUpperCase() + source.slice(1),
-                            sourceUrl: sourceUrl,
+                            sourceUrl: emailObj.sourceUrl || '',
                             keyword: keyword,
                             role: role || 'General',
                             selected: false
                         };
                     });
 
-                    // Filter duplicates
-                    const uniqueNewEmails = newEmails.filter(newEmail => 
+                    // Drop invalid entries and filter duplicates
+                    const filteredNewEmails = newEmails.filter(Boolean);
+                    const uniqueNewEmails = filteredNewEmails.filter(newEmail => 
                         !collectedEmails.some(existing => 
                             existing.email.toLowerCase() === newEmail.email.toLowerCase()
                         )
@@ -517,7 +569,7 @@ export function openPersonalizedEmailModal(emails) {
 
 // Export contacts to CSV
 export function exportToCSV(contacts) {
-    const headers = ['Email', 'Role', 'Platform', 'Source URL', 'Keyword', 'Overview'];
+    const headers = ['Email', 'Role', 'Platform', 'Keyword', 'Overview'];
     const csvRows = [];
     
     // Add headers
@@ -529,7 +581,6 @@ export function exportToCSV(contacts) {
             `"${contact.email}"`,
             `"${contact.role || 'General'}"`,
             `"${contact.source}"`,
-            `"${contact.sourceUrl || ''}"`,
             `"${contact.keyword}"`,
             `"${(contact.overview || '').replace(/"/g, '""')}"`
         ];

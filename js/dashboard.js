@@ -747,6 +747,12 @@ function startContactScraping() {
             dateRange: dateRange,
             location: location,
             role: role
+        },
+        threadsConfig: {
+            keywords: keywords,
+            dateRange: dateRange,
+            location: location,
+            role: role
         }
     };
     
@@ -762,6 +768,7 @@ function startContactScraping() {
         
         config.linkedinConfig.dateRange = { start: startDate, end: endDate };
         config.instagramConfig.dateRange = { start: startDate, end: endDate };
+        config.threadsConfig.dateRange = { start: startDate, end: endDate };
     }
     
     // Update UI
